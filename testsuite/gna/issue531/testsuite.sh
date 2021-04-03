@@ -5,15 +5,11 @@
 analyze repro1.vhdl
 elab sliced_ex
 
-if ghdl_has_feature sliced_ex vpi; then
+if c_compiler_is_available && ghdl_has_feature sliced_ex vpi; then
   $GHDL --vpi-compile -v gcc -c vpi1.c
   $GHDL --vpi-link -v gcc -o vpi1.vpi vpi1.o
 
-  if [ "$OS" = "Windows_NT" ]; then
-      vpi_lib=`$GHDL --vpi-library-dir | sed -e 's!\\\\!/!g' -e 's!^C:!/C!g'`
-      echo vpi_lib: $vpi_lib
-      PATH="$PATH:$vpi_lib"
-  fi
+  add_vpi_path
 
   simulate sliced_ex --vpi=./vpi1.vpi | tee sliced_ex.out
   if grep -q Error sliced_ex.out; then

@@ -1,73 +1,117 @@
 --  Command line options.
 --  Copyright (C) 2008 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
-with Ada.Text_IO;
-with Name_Table;
+--  along with this program.  If not, see <gnu.org/licenses>.
+
+with Simple_IO;
 with Errorout; use Errorout;
-with Libraries;
+with Types; use Types;
 with Std_Names;
+with Name_Table;
+with Str_Table;
+with Libraries;
 with PSL.Nodes;
 with PSL.Dump_Tree;
-with Disp_Tree;
-with Scanner;
-with Back_End; use Back_End;
 with Flags; use Flags;
 with Files_Map;
+
+with Vhdl.Nodes;
+with Vhdl.Lists;
+with Vhdl.Disp_Tree;
+with Vhdl.Scanner;
+with Vhdl.Parse;
+with Vhdl.Errors;
+with Vhdl.Back_End; use Vhdl.Back_End;
 
 package body Options is
    procedure Initialize is
    begin
+      Name_Table.Initialize;
       Std_Names.Std_Names_Initialize;
-      Libraries.Init_Paths;
-      PSL.Nodes.Init;
-      PSL.Dump_Tree.Dump_Hdl_Node := Disp_Tree.Disp_Tree_For_Psl'Access;
+      Str_Table.Initialize;
+      Vhdl.Lists.Initialize;
+      Vhdl.Nodes.Initialize;
+      Files_Map.Initialize;
+      Libraries.Initialize;
+      PSL.Nodes.Init (Libraries.Library_Location);
+      PSL.Dump_Tree.Dump_Hdl_Node := Vhdl.Disp_Tree.Disp_Tree_For_Psl'Access;
+      Vhdl.Errors.Initialize;
    end Initialize;
 
-   function Option_Warning (Opt: String; Val : Boolean) return Boolean is
+   procedure Finalize is
+   begin
+      Name_Table.Finalize;
+      Str_Table.Finalize;
+      Vhdl.Lists.Finalize;
+      Vhdl.Nodes.Finalize;
+      Files_Map.Finalize;
+      Libraries.Finalize;
+      --  TODO: finalize errors (reset counters, handlers...)
+      --  TODO: PSL
+      --  TODO: backend
+   end Finalize;
+
+   function Option_Warning (Opt: String; Val : Boolean) return Option_State is
    begin
       --  Handle -Werror.
       if Opt = "error" then
-         Warn_Error := Val;
-         return True;
+         for I in Msgid_Warnings loop
+            Warning_Error (I, Val);
+         end loop;
+         return Option_Ok;
+      end if;
+
+      --  Handle -Werror=xxx
+      if Opt'Length >= 6
+        and then Opt (Opt'First .. Opt'First + 5) = "error="
+      then
+         for I in Msgid_Warnings loop
+            if Warning_Image (I) = Opt (Opt'First + 6 .. Opt'Last) then
+               Warning_Error (I, Val);
+               return Option_Ok;
+            end if;
+         end loop;
+         Error_Msg_Option ("unknown warning identifier");
+         return Option_Err;
       end if;
 
       --  Normal warnings.
       for I in Msgid_Warnings loop
          if Warning_Image (I) = Opt then
             Enable_Warning (I, Val);
-            return True;
+            return Option_Ok;
          end if;
       end loop;
 
       --  -Wreserved is an alias for -Wreserved-word.
       if Opt = "reserved" then
          Enable_Warning (Warnid_Reserved_Word, Val);
-         return True;
+         return Option_Ok;
       end if;
 
       --  Unknown warning.
-      return False;
+      Error_Msg_Option ("unknown warning identifier");
+      return Option_Err;
    end Option_Warning;
 
-   function Parse_Option (Opt : String) return Boolean
+   function Parse_Option (Opt : String) return Option_State
    is
       pragma Assert (Opt'First = 1);
    begin
       if Opt'Last > 5 and then Opt (1 .. 6) = "--std=" then
+         Flag_Relaxed_Rules := False;
+         Flag_Relaxed_Files87 := False;
          if Opt'Length = 8 then
             if Opt (7 .. 8) = "87" then
                Vhdl_Std := Vhdl_87;
@@ -80,24 +124,28 @@ package body Options is
             elsif Opt (7 .. 8) = "08" then
                Vhdl_Std := Vhdl_08;
             else
-               return False;
+               Error_Msg_Option ("unknown language standard");
+               return Option_Err;
             end if;
          elsif Opt'Length = 9 and then Opt (7 .. 9) = "93c" then
-            Vhdl_Std := Vhdl_93c;
+            Vhdl_Std := Vhdl_93;
+            Flag_Relaxed_Rules := True;
+            Flag_Relaxed_Files87 := True;
          else
-            return False;
+            Error_Msg_Option ("unknown language standard");
+            return Option_Err;
          end if;
       elsif Opt'Length = 5 and then Opt (1 .. 5) = "--ams" then
          AMS_Vhdl := True;
       elsif Opt'Length >= 2 and then Opt (1 .. 2) = "-P" then
          if Opt'Last = 2 then
             Error_Msg_Option ("missing directory after -P");
-            return True;
+            return Option_Err;
          end if;
          if Opt (3) = '=' then
             if Opt'Last = 3 then
                Error_Msg_Option ("missing directory after -P=");
-               return True;
+               return Option_Err;
             end if;
             Libraries.Add_Library_Path (Opt (4 .. Opt'Last));
          else
@@ -116,16 +164,15 @@ package body Options is
       elsif Opt'Length > 2 and then Opt (1 .. 2) = "-W" then
          return Option_Warning (Opt (3 .. Opt'Last), True);
       elsif Opt'Length > 7 and then Opt (1 .. 7) = "--work=" then
-         declare
-            use Name_Table;
-            Name : String (1 .. Opt'Last - 8 + 1);
-         begin
-            Name := Opt (8 .. Opt'Last);
-            Scanner.Convert_Identifier (Name);
-            Libraries.Work_Library_Name := Get_Identifier (Name);
-         end;
+         Libraries.Work_Library_Name := Libraries.Decode_Work_Option (Opt);
+         if Libraries.Work_Library_Name = Null_Identifier then
+            return Option_Err;
+         end if;
       elsif Opt = "-C" or else Opt = "--mb-comments" then
          Mb_Comment := True;
+      elsif Opt = "--force-analysis" then
+         Flag_Force_Analysis := True;
+         Vhdl.Parse.Flag_Parse_Parenthesis := True;
       elsif Opt = "-fcaret-diagnostics" then
          Flag_Caret_Diagnostics := True;
       elsif Opt = "-fno-caret-diagnostics" then
@@ -146,13 +193,21 @@ package body Options is
             V := Natural'Value (Opt (11 .. Opt'Last));
             if V not in Tab_Stop_Range then
                Error_Msg_Option ("incorrect value for -ftabstop");
-               return True;
+               return Option_Err;
             end if;
             Tab_Stop := V;
          exception
             when Constraint_Error =>
                Error_Msg_Option ("numeric value expected after -ftabstop=");
-               return True;
+               return Option_Err;
+         end;
+      elsif Opt'Length > 13 and then Opt (1 .. 13) = "-fmax-errors=" then
+         begin
+            Max_Nbr_Errors := Natural'Value (Opt (14 .. Opt'Last));
+         exception
+            when Constraint_Error =>
+               Error_Msg_Option ("numeric value expected after -fmax-errors=");
+               return Option_Err;
          end;
       elsif Opt = "--bootstrap" then
          Bootstrap := True;
@@ -160,6 +215,8 @@ package body Options is
          Flag_Explicit := True;
       elsif Opt = "-frelaxed-rules" or else Opt = "-frelaxed" then
          Flag_Relaxed_Rules := True;
+      elsif Opt = "-fsynopsys" then
+         Flag_Synopsys := True;
       elsif Opt = "--syn-binding" then
          Flag_Syn_Binding := True;
       elsif Opt = "--no-vital-checks" then
@@ -167,8 +224,8 @@ package body Options is
       elsif Opt = "--vital-checks" then
          Flag_Vital_Checks := True;
       elsif Opt = "-fpsl" then
-         Scanner.Flag_Psl_Comment := True;
-         Scanner.Flag_Comment_Keyword := True;
+         Vhdl.Scanner.Flag_Psl_Comment := True;
+         Vhdl.Scanner.Flag_Comment_Keyword := True;
       elsif Opt = "-dp" then
          Dump_Parse := True;
       elsif Opt = "-ds" then
@@ -199,20 +256,20 @@ package body Options is
          Flag_Integer_64 := True;
       elsif Opt = "--ftime32" then
          Flag_Time_64 := False;
-      elsif Back_End.Parse_Option /= null
-        and then Back_End.Parse_Option.all (Opt)
+      elsif Vhdl.Back_End.Parse_Option /= null
+        and then Vhdl.Back_End.Parse_Option.all (Opt)
       then
          null;
       else
-         return False;
+         return Option_Unknown;
       end if;
-      return True;
+      return Option_Ok;
    end Parse_Option;
 
    -- Disp help about these options.
    procedure Disp_Options_Help
    is
-      procedure P (S : String) renames Ada.Text_IO.Put_Line;
+      procedure P (S : String) renames Simple_IO.Put_Line;
    begin
       P ("Main options:");
       P ("  --work=LIB         use LIB as work library");
@@ -251,8 +308,8 @@ package body Options is
       P ("Compilation dump:");
       P ("  -d[psa]            dump tree after parse, semantics or annotate");
       P ("  --dall             -dX options apply to all files");
-      if Back_End.Disp_Option /= null then
-         Back_End.Disp_Option.all;
+      if Vhdl.Back_End.Disp_Option /= null then
+         Vhdl.Back_End.Disp_Option.all;
       end if;
    end Disp_Options_Help;
 

@@ -1,24 +1,24 @@
---  GHDL driver - compile and link wrappers for VPI.
+--  GHDL driver - compile and link wrappers for VPI and VHPI.
 --  Copyright (C) 2016 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
-with Ada.Text_IO; use Ada.Text_IO;
 with GNAT.OS_Lib; use GNAT.OS_Lib;
 with Ada.Command_Line; use Ada.Command_Line;
+with Simple_IO; use Simple_IO;
+with Options; use Options;
+
 with Ghdlmain; use Ghdlmain;
 with Ghdllocal;
 with Default_Paths; use Default_Paths;
@@ -30,15 +30,16 @@ package body Ghdlvpi is
    --  of tuning for another OS.
    Is_Unix : constant Boolean := Shared_Library_Extension = ".so";
    Is_Darwin : constant Boolean := Shared_Library_Extension = ".dylib";
-   Is_Windows : constant Boolean := Shared_Library_Extension = ".dll";
 
    --  Return the include directory.
    function Get_Vpi_Include_Dir return String is
    begin
       --  Compute install path
-      Ghdllocal.Set_Exec_Prefix;
+      Ghdllocal.Set_Exec_Prefix_From_Program_Name;
 
-      return Ghdllocal.Exec_Prefix.all & Directory_Separator & "include";
+      return Ghdllocal.Exec_Prefix.all
+        & Directory_Separator & "include"
+        & Directory_Separator & "ghdl";
    end Get_Vpi_Include_Dir;
 
    --  Return the lib directory.
@@ -46,7 +47,7 @@ package body Ghdlvpi is
    begin
       if Ghdllocal.Exec_Prefix = null then
          --  Compute install path (only once).
-         Ghdllocal.Set_Exec_Prefix;
+         Ghdllocal.Set_Exec_Prefix_From_Program_Name;
       end if;
 
       return Ghdllocal.Exec_Prefix.all & Directory_Separator & "lib";
@@ -54,28 +55,9 @@ package body Ghdlvpi is
 
    --  Return the lib directory, but unixify the path (for a unix shell in
    --  windows).
-   function Get_Vpi_Lib_Dir_Unix return String
-   is
-      Res : String := Get_Vpi_Lib_Dir;
+   function Get_Vpi_Lib_Dir_Unix return String is
    begin
-      if Is_Windows then
-         --  Convert path separators.
-         for I in Res'Range loop
-            if Res (I) = '\' then
-               Res (I) := '/';
-            end if;
-         end loop;
-         if Res'Length > 2
-           and then (Res (Res'First) in 'a' .. 'z'
-                       or else Res (Res'First) in 'A' .. 'Z')
-           and then Res (Res'First + 1) = ':'
-         then
-            Res (Res'First + 1) := '/';
-            return '/' & Res;
-         end if;
-      end if;
-
-      return Res;
+      return Convert_Path_To_Unix (Get_Vpi_Lib_Dir);
    end Get_Vpi_Lib_Dir_Unix;
 
    function Get_Vpi_Cflags return Argument_List
@@ -108,8 +90,7 @@ package body Ghdlvpi is
          --  On linux/unix, add rpath.
          --  No such concept on windows.
          Nbr := Nbr + 1;
-         Extra_Args (Nbr) := new String'
-           ("-Wl,-rpath," & Get_Vpi_Lib_Dir);
+         Extra_Args (Nbr) := new String'("-Wl,-rpath," & Get_Vpi_Lib_Dir);
       end if;
 
       return Extra_Args (1 .. Nbr);
@@ -179,25 +160,6 @@ package body Ghdlvpi is
       Set_Exit_Status (Exit_Status (Status));
    end Spawn_Compile;
 
-   --  A command that accepts command and help strings.
-   type Command_Str_Type is abstract new Command_Type with record
-      Cmd_Str : String_Access;
-      Help_Str : String_Access;
-   end record;
-
-   function Get_Short_Help (Cmd : Command_Str_Type) return String;
-
-   function Decode_Command (Cmd : Command_Str_Type; Name : String)
-                           return Boolean is
-   begin
-      return Name = Cmd.Cmd_Str.all;
-   end Decode_Command;
-
-   function Get_Short_Help (Cmd : Command_Str_Type) return String is
-   begin
-      return Cmd.Help_Str.all;
-   end Get_Short_Help;
-
    --  A command that spawn with extra_args
    type Extra_Args_Func is access function return Argument_List;
    type Command_Spawn_Type is new Command_Str_Type with record
@@ -205,18 +167,18 @@ package body Ghdlvpi is
       Extra_Args : Extra_Args_Func;
    end record;
 
-   procedure Perform_Action (Cmd : Command_Spawn_Type;
+   procedure Perform_Action (Cmd : in out Command_Spawn_Type;
                              Args : Argument_List);
    procedure Decode_Option (Cmd : in out Command_Spawn_Type;
                             Option : String;
                             Arg : String;
-                            Res : out Option_Res);
+                            Res : out Option_State);
 
 
    procedure Decode_Option (Cmd : in out Command_Spawn_Type;
                             Option : String;
                             Arg : String;
-                            Res : out Option_Res)
+                            Res : out Option_State)
    is
       pragma Unreferenced (Arg);
    begin
@@ -224,11 +186,11 @@ package body Ghdlvpi is
          Cmd.Flag_Verbose := True;
          Res := Option_Ok;
       else
-         Res := Option_Bad;
+         Res := Option_Unknown;
       end if;
    end Decode_Option;
 
-   procedure Perform_Action (Cmd : Command_Spawn_Type;
+   procedure Perform_Action (Cmd : in out Command_Spawn_Type;
                              Args : Argument_List) is
    begin
       Spawn_Compile (Args, Cmd.Extra_Args.all, Cmd.Flag_Verbose);
@@ -239,31 +201,15 @@ package body Ghdlvpi is
    type Command_Vpi_Flags is new Command_Str_Type with record
       Flags : Extra_Args_Func;
    end record;
-   procedure Perform_Action (Cmd : Command_Vpi_Flags;
+   procedure Perform_Action (Cmd : in out Command_Vpi_Flags;
                              Args : Argument_List);
 
-   procedure Perform_Action (Cmd : Command_Vpi_Flags;
+   procedure Perform_Action (Cmd : in out Command_Vpi_Flags;
                              Args : Argument_List)
    is
       pragma Unreferenced (Args);
    begin
       Disp (Cmd.Flags.all);
-   end Perform_Action;
-
-   --  A command that display a string.
-   type String_Func is access function return String;
-   type Command_Vpi_Disp is new Command_Str_Type with record
-      Disp : String_Func;
-   end record;
-   procedure Perform_Action (Cmd : Command_Vpi_Disp;
-                             Args : Argument_List);
-
-   procedure Perform_Action (Cmd : Command_Vpi_Disp;
-                             Args : Argument_List)
-   is
-      pragma Unreferenced (Args);
-   begin
-      Put_Line (Cmd.Disp.all);
    end Perform_Action;
 
    procedure Register_Commands is
@@ -275,7 +221,8 @@ package body Ghdlvpi is
             Cmd_Str => new String'
               ("--vpi-compile"),
             Help_Str => new String'
-              ("--vpi-compile CMD ARGS    Compile with VPI include path"),
+              ("--vpi-compile CMD ARGS"
+              & ASCII.LF & "  Compile with VPI/VHPI include path"),
             Extra_Args => Get_Vpi_Cflags'Access));
       Register_Command
         (new Command_Spawn_Type'
@@ -284,7 +231,8 @@ package body Ghdlvpi is
             Cmd_Str => new String'
               ("--vpi-link"),
             Help_Str => new String'
-              ("--vpi-link CMD ARGS       Link with VPI library"),
+              ("--vpi-link CMD ARGS"
+              & ASCII.LF & "  Link with VPI/VHPI library"),
             Extra_Args => Get_Vpi_Ldflags'Access));
 
       Register_Command
@@ -293,7 +241,8 @@ package body Ghdlvpi is
             Cmd_Str => new String'
               ("--vpi-cflags"),
             Help_Str => new String'
-              ("--vpi-cflags       Display VPI compile flags"),
+              ("--vpi-cflags"
+              & ASCII.LF & "  Display VPI/VHPI compile flags"),
             Flags => Get_Vpi_Cflags'Access));
       Register_Command
         (new Command_Vpi_Flags'
@@ -301,33 +250,36 @@ package body Ghdlvpi is
             Cmd_Str => new String'
               ("--vpi-ldflags"),
             Help_Str => new String'
-              ("--vpi-ldflags      Display VPI link flags"),
+              ("--vpi-ldflags"
+              & ASCII.LF & "  Display VPI/VHPI link flags"),
             Flags => Get_Vpi_Ldflags'Access));
 
       Register_Command
-        (new Command_Vpi_Disp'
+        (new Command_Str_Disp'
            (Command_Type with
             Cmd_Str => new String'
               ("--vpi-include-dir"),
             Help_Str => new String'
-              ("--vpi-include-dir  Display VPI include directory"),
+              ("--vpi-include-dir"
+              & ASCII.LF & "  Display VPI/VHPI include directory"),
             Disp => Get_Vpi_Include_Dir'Access));
       Register_Command
-        (new Command_Vpi_Disp'
+        (new Command_Str_Disp'
            (Command_Type with
             Cmd_Str => new String'
               ("--vpi-library-dir"),
             Help_Str => new String'
-              ("--vpi-library-dir  Display VPI library directory"),
+              ("--vpi-library-dir"
+              & ASCII.LF & "  Display VPI/VHPI library directory"),
             Disp => Get_Vpi_Lib_Dir'Access));
       Register_Command
-        (new Command_Vpi_Disp'
+        (new Command_Str_Disp'
            (Command_Type with
             Cmd_Str => new String'
               ("--vpi-library-dir-unix"),
             Help_Str => new String'
-              ("--vpi-library-dir-unix  "
-                 & "Display VPI library directory (unix form)"),
+              ("--vpi-library-dir-unix"
+              & ASCII.LF & "  Display VPI/VHPI library directory (unix form)"),
             Disp => Get_Vpi_Lib_Dir_Unix'Access));
 
    end Register_Commands;

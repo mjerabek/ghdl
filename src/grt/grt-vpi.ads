@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) - VPI interface.
 --  Copyright (C) 2002 - 2014 Tristan Gingold & Felix Bertram
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 -- Description: VPI interface for GRT runtime
 --              the main purpose of this code is to interface with the
@@ -38,6 +36,7 @@ package Grt.Vpi is
    vpiSize :          constant Integer :=  4;
    vpiFile :          constant Integer :=  5;
    vpiLineNo :        constant Integer :=  6;
+   vpiConstant :      constant Integer :=  7;
 
    vpiDefName :       constant Integer :=  9;
    vpiTimePrecision : constant Integer := 12;
@@ -155,7 +154,8 @@ package Grt.Vpi is
             Scalar : Integer;
          when vpiIntVal =>
             Integer_m : Integer;
-            --when vpiRealVal=>     null; -- what is the equivalent to double?
+         when vpiRealVal=>
+            Real_M : Ghdl_F64;
             --when vpiTimeVal=>     mTime:     p_vpi_time;
             --when vpiVectorVal=>   mVector:   p_vpi_vecval;
             --when vpiStrengthVal=> mStrength: p_vpi_strengthval;
@@ -333,6 +333,8 @@ private
             Cb_Prev, Cb_Next : vpiHandle;
             Cb_Wire : Grt.Vcd.Verilog_Wire_Info;
             Cb_Handle : Callbacks.Callback_Handle;
+            --  Number of reference to the handler by the simulation kernel.
+            Cb_Refcnt : Natural;
          when others =>
             Ref : VhpiHandleT;
       end case;

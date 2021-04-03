@@ -1,20 +1,18 @@
 /*  GHDL Wavefile reader library.
     Copyright (C) 2005-2017 Tristan Gingold
 
-    GHDL is free software; you can redistribute it and/or modify it under
-    the terms of the GNU General Public License as published by the Free
-    Software Foundation; either version 2, or (at your option) any later
-    version.
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
 
-    GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
-    WARRANTY; without even the implied warranty of MERCHANTABILITY or
-    FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
-    for more details.
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with GCC; see the file COPYING.  If not, write to the Free
-    Software Foundation, 59 Temple Place - Suite 330, Boston, MA
-    02111-1307, USA.
+    along with this program.  If not, see <gnu.org/licenses>.
 */
 
 
@@ -23,6 +21,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+
+/* To be libraries friendly.  */
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 
 /* The ghwlib uses the standard c99 int32_t and int64_t.  They are declared
    in stdint.h.  Header inttypes.h includes stdint.h and provides macro for
@@ -78,16 +81,19 @@ enum ghdl_rtik {
   ghdl_rtik_type_file,
   ghdl_rtik_subtype_scalar,
   ghdl_rtik_subtype_array,	/* 35 */
-  ghdl_rtik_subtype_array_ptr,             /* Obsolete.  */
-  ghdl_rtik_subtype_unconstrained_array,   /* Obsolete.  */
+  ghdl_rtik_subtype_array_ptr,  /* Obsolete.  */
+  ghdl_rtik_subtype_unbounded_array,
   ghdl_rtik_subtype_record,
-  ghdl_rtik_subtype_access,
+  ghdl_rtik_subtype_unbounded_record,
+#if 0
+  ghdl_rtik_subtype_access,     /* 40 */
   ghdl_rtik_type_protected,
   ghdl_rtik_element,
   ghdl_rtik_unit,
   ghdl_rtik_attribute_transaction,
   ghdl_rtik_attribute_quiet,
   ghdl_rtik_attribute_stable,
+#endif
   ghdl_rtik_error
 };
 
@@ -198,14 +204,23 @@ struct ghw_type_array
   union ghw_type **dims;
 };
 
+struct ghw_subtype_unbounded_array
+{
+  enum ghdl_rtik kind;
+  const char *name;
+
+  union ghw_type *base;
+};
+
 struct ghw_subtype_array
 {
   enum ghdl_rtik kind;
   const char *name;
 
-  struct ghw_type_array *base;
+  union ghw_type *base;
   int nbr_scalars;
   union ghw_range **rngs;
+  union ghw_type *el;
 };
 
 struct ghw_subtype_scalar
@@ -243,6 +258,14 @@ struct ghw_subtype_record
   struct ghw_record_element *els;
 };
 
+struct ghw_subtype_unbounded_record
+{
+  enum ghdl_rtik kind;
+  const char *name;
+
+  struct ghw_type_record *base;
+};
+
 union ghw_type
 {
   enum ghdl_rtik kind;
@@ -251,10 +274,12 @@ union ghw_type
   struct ghw_type_scalar sc;
   struct ghw_type_physical ph;
   struct ghw_subtype_scalar ss;
-  struct ghw_subtype_array sa;
-  struct ghw_subtype_record sr;
   struct ghw_type_array ar;
   struct ghw_type_record rec;
+  struct ghw_subtype_array sa;
+  struct ghw_subtype_unbounded_array sua;
+  struct ghw_subtype_record sr;
+  struct ghw_subtype_unbounded_record sur;
 };
 
 union ghw_val
@@ -409,6 +434,8 @@ enum ghw_res {
   ghw_res_cycle = 2,
   ghw_res_other = 3
 };
+
+enum ghw_res ghw_read_sm_hdr (struct ghw_handler *h, int *list);
 
 int ghw_read_sm (struct ghw_handler *h, enum ghw_sm_type *sm);
 

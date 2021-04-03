@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) -  misc subprograms.
 --  Copyright (C) 2002 - 2016 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -25,8 +23,6 @@
 with Grt.Types; use Grt.Types;
 
 package Grt.Lib is
-   pragma Preelaborate (Grt.Lib);
-
    procedure Ghdl_Memcpy
      (Dest : Ghdl_Ptr; Src : Ghdl_Ptr; Size : Ghdl_Index_Type);
 
@@ -36,9 +32,9 @@ package Grt.Lib is
      (Str : Std_String_Ptr; Severity : Integer; Loc : Ghdl_Location_Ptr);
 
    procedure Ghdl_Psl_Assert_Failed
-     (Str : Std_String_Ptr;
-      Severity : Integer;
-      Loc : Ghdl_Location_Ptr);
+     (Str : Std_String_Ptr; Severity : Integer; Loc : Ghdl_Location_Ptr);
+
+   procedure Ghdl_Psl_Assume_Failed (Loc : Ghdl_Location_Ptr);
 
    --  Called when a sequence is covered (in a cover directive)
    procedure Ghdl_Psl_Cover
@@ -50,16 +46,17 @@ package Grt.Lib is
    procedure Ghdl_Report
      (Str : Std_String_Ptr; Severity : Integer; Loc : Ghdl_Location_Ptr);
 
-   Note_Severity    : constant Integer := 0;
-   Warning_Severity : constant Integer := 1;
-   Error_Severity   : constant Integer := 2;
-   Failure_Severity : constant Integer := 3;
-
    --  Bound / Direction error.
    procedure Ghdl_Bound_Check_Failed (Filename : Ghdl_C_String;
                                       Line: Ghdl_I32);
    procedure Ghdl_Direction_Check_Failed (Filename : Ghdl_C_String;
                                           Line: Ghdl_I32);
+
+   procedure Ghdl_Integer_Index_Check_Failed
+     (Filename : Ghdl_C_String;
+      Line     : Ghdl_I32;
+      Val      : Std_Integer;
+      Rng      : Std_Integer_Range_Ptr);
 
    --  Program error has occurred:
    --  * configuration of an already configured block.
@@ -72,8 +69,6 @@ package Grt.Lib is
 
    --  Called before allocation of large (complex) objects.
    procedure Ghdl_Check_Stack_Allocation (Size : Ghdl_Index_Type);
-
-   Max_Stack_Allocation : Ghdl_Index_Type := 128 * 1024;
 
    function Ghdl_Malloc (Size : Ghdl_Index_Type) return Ghdl_Ptr;
 
@@ -116,6 +111,7 @@ private
 
    pragma Export (C, Ghdl_Assert_Failed, "__ghdl_assert_failed");
    pragma Export (C, Ghdl_Ieee_Assert_Failed, "__ghdl_ieee_assert_failed");
+   pragma Export (C, Ghdl_Psl_Assume_Failed, "__ghdl_psl_assume_failed");
    pragma Export (C, Ghdl_Psl_Assert_Failed, "__ghdl_psl_assert_failed");
    pragma Export (C, Ghdl_Psl_Cover, "__ghdl_psl_cover");
    pragma Export (C, Ghdl_Psl_Cover_Failed, "__ghdl_psl_cover_failed");
@@ -125,6 +121,9 @@ private
                   "__ghdl_bound_check_failed");
    pragma Export (C, Ghdl_Direction_Check_Failed,
                   "__ghdl_direction_check_failed");
+   pragma Export (C, Ghdl_Integer_Index_Check_Failed,
+                  "__ghdl_integer_index_check_failed");
+
    pragma Export (C, Ghdl_Program_Error, "__ghdl_program_error");
 
    pragma Export (C, Ghdl_Check_Stack_Allocation,

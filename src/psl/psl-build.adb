@@ -1,24 +1,23 @@
 --  PSL - NFA builder.
 --  Copyright (C) 2002-2016 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Tables;
 with Ada.Text_IO; use Ada.Text_IO;
 with Types; use Types;
+with PSL.Types; use PSL.Types;
 with PSL.Errors; use PSL.Errors;
 with PSL.CSE; use PSL.CSE;
 with PSL.QM;
@@ -96,6 +95,7 @@ package body PSL.Build is
          Res : NFA;
          Start : NFA_State;
          Extra_L, Extra_R : NFA_Edge;
+         T : Node;
       begin
          Start_L := Get_Start_State (L);
          Start_R := Get_Start_State (R);
@@ -141,12 +141,13 @@ package body PSL.Build is
                E_R := Get_First_Src_Edge (S_R);
                while E_R /= No_Edge loop
                   if not (E_L = Extra_L and E_R = Extra_R) then
+                     T := Build_Bool_And (Get_Edge_Expr (E_L),
+                                          Get_Edge_Expr (E_R));
                      Add_Edge (Get_State (Res, S_L, S_R),
                                Get_State (Res,
                                           Get_Edge_Dest (E_L),
                                           Get_Edge_Dest (E_R)),
-                               Build_Bool_And (Get_Edge_Expr (E_L),
-                                               Get_Edge_Expr (E_R)));
+                               T);
                   end if;
                   E_R := Get_Next_Src_Edge (E_R);
                end loop;
@@ -377,7 +378,9 @@ package body PSL.Build is
 
       Set_Epsilon_NFA (L, False);
 
-      if Get_First_Src_Edge (Final_L) = No_Edge then
+      if Get_First_Src_Edge (Final_L) = No_Edge
+        and then Final_L /= Get_Active_State (L)
+      then
          Remove_State (L, Final_L);
       end if;
       if Get_First_Dest_Edge (Start_R) = No_Edge then
@@ -717,6 +720,7 @@ package body PSL.Build is
                             Expr : Node;
                             V : Bool_Vector)
       is
+         T : Node;
       begin
          if Expr = False_Node then
             return;
@@ -756,13 +760,15 @@ package body PSL.Build is
                N_V (S) := True;
                if Expr = Null_Node then
                   Build_Arcs (N, State, N_States, Exprs, E, N_V);
-                  Build_Arcs (N, State, N_States, Exprs,
-                              Build_Bool_Not (E), V);
+                  T := Build_Bool_Not (E);
+                  Build_Arcs (N, State, N_States, Exprs, T, V);
                else
-                  Build_Arcs (N, State, N_States, Exprs,
-                              Build_Bool_And (E, Expr), N_V);
-                  Build_Arcs (N, State, N_States, Exprs,
-                              Build_Bool_And (Build_Bool_Not (E), Expr), V);
+                  T := Build_Bool_And (E, Expr);
+
+                  Build_Arcs (N, State, N_States, Exprs, T, N_V);
+                  T := Build_Bool_Not (E);
+                  T := Build_Bool_And (T, Expr);
+                  Build_Arcs (N, State, N_States, Exprs, T, V);
                end if;
             end;
          end if;
@@ -782,6 +788,7 @@ package body PSL.Build is
          States : State_Vector (0 .. Nbr_States - 1);
          Res : NFA;
          State : NFA_State;
+         R : Node;
       begin
          Final := Natural (Get_State_Label (Get_Final_State (N)));
 
@@ -838,11 +845,11 @@ package body PSL.Build is
                      end if;
 
                      if D = Final then
-                        Edge_Expr := Build_Bool_Not (Edge_Expr);
+                        R := Build_Bool_Not (Edge_Expr);
                         if Expr = Null_Node then
-                           Expr := Edge_Expr;
+                           Expr := R;
                         else
-                           Expr := Build_Bool_And (Expr, Edge_Expr);
+                           Expr := Build_Bool_And (Expr, R);
                         end if;
                      else
                         if Exprs (D) = Null_Node then
@@ -850,8 +857,7 @@ package body PSL.Build is
                            States (Nbr_Dest) := D;
                            Nbr_Dest := Nbr_Dest + 1;
                         else
-                           Exprs (D) := Build_Bool_Or (Exprs (D),
-                                                       Edge_Expr);
+                           Exprs (D) := Build_Bool_Or (Exprs (D), Edge_Expr);
                         end if;
                      end if;
                      E := Get_Next_Src_Edge (E);
@@ -942,7 +948,26 @@ package body PSL.Build is
       end loop;
    end Build_Abort;
 
-   function Build_Property_FA (N : Node) return NFA
+   function Build_Property_FA (N : Node; With_Active : Boolean) return NFA;
+
+   function Build_Overlap_Imp
+     (Left, Right : Node; With_Active : Boolean) return NFA
+   is
+      L, R : NFA;
+      Res : NFA;
+   begin
+      L := Build_SERE_FA (Left);
+      R := Build_Property_FA (Right, False);
+      if With_Active then
+         Set_Active_State (L, Get_Final_State (L));
+      end if;
+      Res := Build_Fusion (L, R);
+      --  Ensure the active state is kept.
+      pragma Assert (Res = L);
+      return Res;
+   end Build_Overlap_Imp;
+
+   function Build_Property_FA (N : Node; With_Active : Boolean) return NFA
    is
       L, R : NFA;
    begin
@@ -953,37 +978,44 @@ package body PSL.Build is
             R := Build_SERE_FA (N);
             return Determinize.Determinize (R);
          when N_Strong =>
-            R := Build_Property_FA (Get_Property (N));
+            R := Build_Property_FA (Get_Property (N), False);
             Build_Strong (R);
             return R;
          when N_Imp_Seq =>
             --  R |=> P  -->  {R; TRUE} |-> P
             L := Build_SERE_FA (Get_Sequence (N));
-            R := Build_Property_FA (Get_Property (N));
+            R := Build_Property_FA (Get_Property (N), False);
+            if With_Active then
+               declare
+                  A : NFA_State;
+               begin
+                  A := Add_State (L);
+                  Duplicate_Dest_Edges (L, Get_Final_State (L), A);
+                  Set_Active_State (L, A);
+               end;
+            end if;
             return Build_Concat (L, R);
          when N_Overlap_Imp_Seq =>
             --  S |-> P  is defined as Ac(S) : A(P)
-            L := Build_SERE_FA (Get_Sequence (N));
-            R := Build_Property_FA (Get_Property (N));
-            return Build_Fusion (L, R);
+            return Build_Overlap_Imp
+              (Get_Sequence (N), Get_Property (N), With_Active);
          when N_Log_Imp_Prop =>
             --  B -> P  -->  {B} |-> P  -->  Ac(B) : A(P)
-            L := Build_SERE_FA (Get_Left (N));
-            R := Build_Property_FA (Get_Right (N));
-            return Build_Fusion (L, R);
+            return Build_Overlap_Imp
+              (Get_Left (N), Get_Right (N), With_Active);
          when N_And_Prop =>
             --  P1 && P2  -->  A(P1) | A(P2)
-            L := Build_Property_FA (Get_Left (N));
-            R := Build_Property_FA (Get_Right (N));
+            L := Build_Property_FA (Get_Left (N), False);
+            R := Build_Property_FA (Get_Right (N), False);
             return Build_Or (L, R);
          when N_Never =>
             R := Build_SERE_FA (Get_Property (N));
             return Build_Initial_Rep (R);
          when N_Always =>
-            R := Build_Property_FA (Get_Property (N));
+            R := Build_Property_FA (Get_Property (N), With_Active);
             return Build_Initial_Rep (R);
          when N_Abort =>
-            R := Build_Property_FA (Get_Property (N));
+            R := Build_Property_FA (Get_Property (N), With_Active);
             Build_Abort (R, Get_Boolean (N));
             return R;
          when N_Property_Instance =>
@@ -992,7 +1024,7 @@ package body PSL.Build is
             begin
                Decl := Get_Declaration (N);
                Assoc_Instance (Decl, N);
-               R := Build_Property_FA (Get_Property (Decl));
+               R := Build_Property_FA (Get_Property (Decl), With_Active);
                Unassoc_Instance (Decl);
                return R;
             end;
@@ -1006,7 +1038,7 @@ package body PSL.Build is
       use PSL.NFAs.Utils;
       Res : NFA;
    begin
-      Res := Build_Property_FA (N);
+      Res := Build_Property_FA (N, True);
       if Optimize_Final then
          pragma Debug (Check_NFA (Res));
 

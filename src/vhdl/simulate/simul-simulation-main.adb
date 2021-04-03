@@ -1,35 +1,35 @@
 --  Interpreted simulation
 --  Copyright (C) 2014-2017 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Ada.Unchecked_Conversion;
-with Ada.Text_IO; use Ada.Text_IO;
+with Simple_IO; use Simple_IO;
 with Types; use Types;
-with Iirs_Utils; use Iirs_Utils;
-with Errorout; use Errorout;
+with Vhdl.Utils; use Vhdl.Utils;
+with Vhdl.Errors; use Vhdl.Errors;
+with PSL.Types; use PSL.Types;
 with PSL.Nodes;
 with PSL.NFAs;
 with PSL.NFAs.Utils;
-with Std_Package;
+with PSL.Errors; use PSL.Errors;
+with Vhdl.Std_Package;
 with Trans_Analyzes;
 with Simul.Elaboration; use Simul.Elaboration;
 with Simul.Execution; use Simul.Execution;
-with Simul.Annotations; use Simul.Annotations;
-with Ieee.Std_Logic_1164;
+with Vhdl.Annotations; use Vhdl.Annotations;
+with Vhdl.Ieee.Std_Logic_1164;
 with Grt.Main;
 with Simul.Debugger; use Simul.Debugger;
 with Simul.Debugger.AMS;
@@ -194,9 +194,9 @@ package body Simul.Simulation.Main is
       Marker : Mark_Type;
    begin
       if Trace_Drivers then
-         Ada.Text_IO.Put ("Drivers for ");
+         Put ("Drivers for ");
          Disp_Instance_Name (Instance);
-         Ada.Text_IO.Put_Line (": " & Disp_Node (Proc));
+         Put_Line (": " & Disp_Node (Proc));
       end if;
 
       Driver_List := Trans_Analyzes.Extract_Drivers (Proc);
@@ -314,7 +314,7 @@ package body Simul.Simulation.Main is
                raise Internal_Error;
          end case;
 
-         --  LRM93 §12.4.4  Other Concurrent Statements
+         --  LRM93 12.4.4  Other Concurrent Statements
          --  All other concurrent statements are either process
          --  statements or are statements for which there is an
          --  equivalent process statement.
@@ -372,16 +372,17 @@ package body Simul.Simulation.Main is
       use PSL.Nodes;
    begin
       case Get_Kind (Expr) is
-         when N_HDL_Expr =>
+         when N_HDL_Expr
+           | N_HDL_Bool =>
             declare
                E : constant Iir := Get_HDL_Node (Expr);
                Rtype : constant Iir := Get_Base_Type (Get_Type (E));
                Res   : Iir_Value_Literal_Acc;
             begin
                Res := Execute_Expression (Instance, E);
-               if Rtype = Std_Package.Boolean_Type_Definition then
+               if Rtype = Vhdl.Std_Package.Boolean_Type_Definition then
                   return Res.B1 = True;
-               elsif Rtype = Ieee.Std_Logic_1164.Std_Ulogic_Type then
+               elsif Rtype = Vhdl.Ieee.Std_Logic_1164.Std_Ulogic_Type then
                   return Res.E8 = 3 or Res.E8 = 7; --  1 or H
                else
                   Error_Kind ("execute_psl_expr", Expr);
@@ -434,7 +435,7 @@ package body Simul.Simulation.Main is
       if V then
          Nvec := (others => False);
          case Get_Kind (E.Stmt) is
-            when Iir_Kind_Psl_Cover_Statement
+            when Iir_Kind_Psl_Cover_Directive
               | Iir_Kind_Psl_Endpoint_Declaration =>
                Nvec (0) := True;
             when others =>
@@ -475,13 +476,19 @@ package body Simul.Simulation.Main is
          S_Num := Get_State_Label (S);
          pragma Assert (S_Num = Get_PSL_Nbr_States (E.Stmt) - 1);
          case Get_Kind (E.Stmt) is
-            when Iir_Kind_Psl_Assert_Statement =>
+            when Iir_Kind_Psl_Assert_Directive =>
                if Nvec (S_Num) then
                   Execute_Failed_Assertion
                     (E.Instance, "psl assertion", E.Stmt,
                      "assertion violation", 2);
                end if;
-            when Iir_Kind_Psl_Cover_Statement =>
+            when Iir_Kind_Psl_Assume_Directive =>
+               if Nvec (S_Num) then
+                  Execute_Failed_Assertion
+                    (E.Instance, "psl assumption", E.Stmt,
+                     "assumption violation", 2);
+               end if;
+            when Iir_Kind_Psl_Cover_Directive =>
                if Nvec (S_Num) then
                   if Get_Report_Expression (E.Stmt) /= Null_Iir then
                      Execute_Failed_Assertion
@@ -561,13 +568,14 @@ package body Simul.Simulation.Main is
               (E.Instance, Get_PSL_Clock_Sensitivity (E.Stmt));
 
             case Get_Kind (E.Stmt) is
-               when Iir_Kind_Psl_Assert_Statement =>
+               when Iir_Kind_Psl_Assert_Directive
+                  | Iir_Kind_Psl_Assume_Directive =>
                   if Get_PSL_EOS_Flag (E.Stmt) then
                      Grt.Processes.Ghdl_Finalize_Register
                        (To_Instance_Acc (E'Address),
                         PSL_Assert_Finalizer'Access);
                   end if;
-               when Iir_Kind_Psl_Cover_Statement =>
+               when Iir_Kind_Psl_Cover_Directive =>
                   --  TODO
                   null;
                when others =>
@@ -810,7 +818,7 @@ package body Simul.Simulation.Main is
                else
                   Src := Formal_Expr;
                end if;
-               --  LRM93 §12.6.2
+               --  LRM93 12.6.2
                --  A signal is said to be active [...] if one of its source
                --  is active.
                Connect (Local_Expr, Src, Connect_Source);
@@ -1202,7 +1210,7 @@ package body Simul.Simulation.Main is
    procedure Simulation_Entity (Top_Conf : Iir_Design_Unit)
    is
       use Grt.Errors;
-      Stop : Boolean;
+      Ok : C_Boolean;
       Status : Integer;
    begin
       Break_Time := Std_Time'Last;
@@ -1215,8 +1223,8 @@ package body Simul.Simulation.Main is
          Debug (Reason_Start);
       end if;
 
-      Grt.Main.Run_Elab (Stop);
-      if Stop then
+      Ok := Grt.Main.Run_Elab;
+      if not Ok then
          return;
       end if;
 

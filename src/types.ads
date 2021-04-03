@@ -1,20 +1,18 @@
 --  Common types.
 --  Copyright (C) 2002 - 2015 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with Interfaces;
 with System;
 with Ada.Unchecked_Conversion;
@@ -29,6 +27,10 @@ package Types is
    type Int32 is range -2**31 .. 2**31 - 1;
    for Int32'Size use 32;
 
+   --  64 bits integer.
+   type Int64 is range -2**63 .. 2**63 - 1;
+   for Int64'Size use 64;
+
    subtype Nat32 is Int32 range 0 .. Int32'Last;
    subtype Pos32 is Nat32 range 1 .. Nat32'Last;
 
@@ -38,18 +40,17 @@ package Types is
    type Uns64 is new Interfaces.Unsigned_64;
 
    type Fp64 is new Interfaces.IEEE_Float_64;
+   type Fp32 is new Interfaces.IEEE_Float_32;
 
-   -- iir_int32 is aimed at containing integer literal values.
-   type Iir_Int32 is new Interfaces.Integer_32;
-
-   -- iir_int64 is aimed at containing units values.
-   type Iir_Int64 is new Interfaces.Integer_64;
-
-   -- iir_fp64 is aimed at containing floating point values.
-   subtype Iir_Fp64 is Fp64;
-
-   --  iir_index32 is aimed at containing an array index.
-   type Iir_Index32 is new Nat32;
+   --  The verilog logic type (when used in a vector).
+   --  Coding of 01zx:
+   --  For 0 and 1, ZX is 0, VAL is the bit value.
+   --  For z: ZX is 1, VAL is 0.
+   --  For x: ZX is 1, VAL is 1.
+   type Logic_32 is record
+      Val : Uns32;  --  AKA aval
+      Zx  : Uns32;  --  AKA bval
+   end record;
 
    --  Useful types.
    type String_Acc is access String;
@@ -138,15 +139,15 @@ package Types is
       Offset : Natural;
    end record;
 
-   --  PSL Node.
-   type PSL_Node is new Int32;
-
-   --  PSL NFA
-   type PSL_NFA is new Int32;
+   No_Source_Coord : constant Source_Coord_Type :=
+     (No_Source_File_Entry, Source_Ptr_Bad, 0, 0);
 
    --  Indentation.
    --  This is used by all packages that display vhdl code or informations.
    Indentation : constant := 2;
+
+   --  For array dimensions.  First dimension is 1.
+   type Dim_Type is new Pos32;
 
    --  String representing a date/time (format is YYYYMMDDHHmmSS.sss).
    subtype Time_Stamp_String is String (1 .. 18);
@@ -170,13 +171,23 @@ package Types is
    --  Unrecoverable error.  Just exit() with an error status.
    Fatal_Error : exception;
 
-   --  In some case, a low level subprogram can't handle error
-   --  (e.g eval_pos).  In this case it is easier to raise an exception and
-   --  let upper level subprograms handle the case.
-   Node_Error : exception;
+   --  List of languages
+   type Language_Type is
+     (
+      Language_Unknown,
+      Language_Vhdl,
+      Language_Psl,
+      Language_Verilog
+     );
 
    --  Result of a comparaison of two numeric values.
    type Order_Type is (Less, Equal, Greater);
 
-   subtype Hash_Value_Type is Uns32;
+   --  Direction for a range.  Used by many HDLs!
+   type Direction_Type is (Dir_To, Dir_Downto);
+
+   --  Modular type for the size.  We don't use Storage_Offset in order to
+   --  make alignment computation efficient (knowing that alignment is a
+   --  power of two).
+   type Size_Type is mod System.Memory_Size;
 end Types;

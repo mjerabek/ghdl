@@ -1,20 +1,18 @@
 --  Global flags.
 --  Copyright (C) 2002, 2003, 2004, 2005, 2008 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 --  All the variables declared in this package are set by Parse_Option function
 --  and can by read as soon as the command line is parsed.
@@ -26,10 +24,10 @@ package Flags is
    --  List of vhdl standards.
    --  VHDL_93c is vhdl_93 with backward compatibility with 87 (file).
    type Vhdl_Std_Type is
-     (Vhdl_87, Vhdl_93c, Vhdl_93, Vhdl_00, Vhdl_02, Vhdl_08);
+     (Vhdl_87, Vhdl_93, Vhdl_00, Vhdl_02, Vhdl_08);
 
    --  Standard accepted.
-   Vhdl_Std: Vhdl_Std_Type := Vhdl_93c;
+   Vhdl_Std: Vhdl_Std_Type := Vhdl_93;
 
    --  Enable AMS-VHDL extensions.
    AMS_Vhdl : Boolean := False;
@@ -104,7 +102,7 @@ package Flags is
 
    --  If set to true, it means that analyze is done for elaboration.
    --  The purpose is to avoid spurious warning "will be checked
-   --  at elaboration"
+   --  at elaboration".  It will also create default binding.
    Flag_Elaborate : Boolean := False;
 
    --  If set, a default aspect entity aspect might be an outdated unit.
@@ -146,14 +144,16 @@ package Flags is
    --  * the scope of an object declaration names start after the declaration,
    --    so that it is possible to use the old name in the default expression:
    --    constant x : xtype := x;
-   Flag_Relaxed_Rules : Boolean := False;
+   Flag_Relaxed_Rules : Boolean := True;
+
+   --  If true allows vhdl-87 file style.  Enabled with --std=93c
+   Flag_Relaxed_Files87 : Boolean := True;
+
+   --  If true, allow to use synopsys packages (std_logic_arith & co).
+   Flag_Synopsys : Boolean := False;
 
    -- --warn-undriven
    --Warn_Undriven : Boolean := False;
-
-   --  --warn-error
-   --  Turns warnings into errors.
-   Warn_Error : Boolean := False;
 
    --  If True, disp original source line and a caret indicating the column.
    Flag_Caret_Diagnostics : Boolean := False;

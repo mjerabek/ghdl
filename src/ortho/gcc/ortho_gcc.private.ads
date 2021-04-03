@@ -1,20 +1,18 @@
 --  GCC back-end for ortho.
 --  Copyright (C) 2002-1014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with System;
 with Interfaces; use Interfaces;
 with Ortho_Ident;
@@ -110,6 +108,14 @@ private
    end record;
    pragma Convention (C, O_Element_List);
 
+   type O_Element_Sublist is record
+      Base : Tree;
+      Field : Tree;
+      Res : Tree;
+      Chain : Chain_Constr_Type;
+   end record;
+   pragma Convention (C, O_Element_Sublist);
+
    type O_Case_Block is record
       Prev_Stmts : Tree;
       Case_Type : Tree;
@@ -165,6 +171,7 @@ private
    pragma Import (C, New_Compare_Op);
 
    pragma Import (C, New_Convert_Ov);
+   pragma Import (C, New_Convert);
    pragma Import (C, New_Alloca);
 
    pragma Import (C, New_Signed_Literal);
@@ -175,6 +182,11 @@ private
    pragma Import (C, Start_Record_Type);
    pragma Import (C, New_Record_Field);
    pragma Import (C, Finish_Record_Type);
+
+   pragma Import (C, Start_Record_Subtype);
+   pragma Import (C, New_Subrecord_Field);
+   pragma Import (C, Finish_Record_Subtype);
+
    pragma Import (C, New_Uncomplete_Record_Type);
    pragma Import (C, Start_Uncomplete_Record_Type);
 
@@ -190,7 +202,7 @@ private
    pragma Import (C, Finish_Access_Type);
 
    pragma Import (C, New_Array_Type);
-   pragma Import (C, New_Constrained_Array_Type);
+   pragma Import (C, New_Array_Subtype);
 
    pragma Import (C, New_Boolean_Type);
    pragma Import (C, Start_Enum_Type);
@@ -212,6 +224,7 @@ private
    pragma Import (C, New_Access_Element);
 
    pragma Import (C, New_Sizeof);
+   pragma Import (C, New_Record_Sizeof);
    pragma Import (C, New_Alignof);
    pragma Import (C, New_Offsetof);
 

@@ -1,20 +1,18 @@
 --  Mcode back-end for ortho - Expressions and control handling.
 --  Copyright (C) 2006 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with Ada.Text_IO;
 with Ada.Unchecked_Deallocation;
 with Tables;
@@ -708,10 +706,10 @@ package body Ortho_Code.Exprs is
       else
          case Get_Const_Kind (Lit) is
             when OC_Signed
-              | OC_Unsigned
-              | OC_Float
-              | OC_Null
-              | OC_Lit =>
+               | OC_Unsigned
+               | OC_Float
+               | OC_Null
+               | OC_Lit =>
                declare
                   H, L : Uns32;
                begin
@@ -726,11 +724,12 @@ package body Ortho_Code.Exprs is
                return New_Enode (OE_Addrd, L_Type,
                                  O_Enode (Get_Const_Decl (Lit)), O_Enode_Null);
             when OC_Array
-              | OC_Record
-              | OC_Union
-              | OC_Sizeof
-              | OC_Alignof
-              | OC_Zero =>
+               | OC_Record
+               | OC_Record_Sizeof
+               | OC_Union
+               | OC_Sizeof
+               | OC_Alignof
+               | OC_Zero =>
                raise Syntax_Error;
          end case;
       end if;
@@ -1034,8 +1033,17 @@ package body Ortho_Code.Exprs is
          Check_Ref (Val);
       end if;
 
-      return New_Enode (OE_Conv, Rtype, Val, O_Enode (Rtype));
+      return New_Enode (OE_Conv_Ov, Rtype, Val, O_Enode (Rtype));
    end New_Convert_Ov;
+
+   function New_Convert (Val : O_Enode; Rtype : O_Tnode) return O_Enode is
+   begin
+      if Flag_Debug_Assert then
+         Check_Ref (Val);
+      end if;
+
+      return New_Enode (OE_Conv, Rtype, Val, O_Enode (Rtype));
+   end New_Convert;
 
    function New_Unchecked_Address (Lvalue : O_Lnode; Atype : O_Tnode)
                                   return O_Enode is
@@ -1194,7 +1202,7 @@ package body Ortho_Code.Exprs is
             raise Program_Error;
       end case;
       if N_Mode /= Mode and not Flag_Debug_Hli then
-         Res := New_Enode (OE_Conv, N_Mode, V_Type, Val, O_Enode (V_Type));
+         Res := New_Enode (OE_Conv_Ov, N_Mode, V_Type, Val, O_Enode (V_Type));
       else
          Res := Val;
       end if;

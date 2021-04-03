@@ -1,20 +1,18 @@
 --  Loading of source files.
 --  Copyright (C) 2002, 2003, 2004, 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with Ada.Unchecked_Deallocation;
 with GNAT.OS_Lib;
 with GNAT.SHA1;
@@ -354,17 +352,12 @@ package body Files_Map is
       Coord_To_Position (File, Line_Pos, Offset, Name, Col);
    end Location_To_Position;
 
-   procedure Location_To_Coord (Location : Location_Type;
-                                File : out Source_File_Entry;
+   procedure File_Pos_To_Coord (File : Source_File_Entry;
+                                Pos : Source_Ptr;
                                 Line_Pos : out Source_Ptr;
                                 Line : out Positive;
-                                Offset : out Natural)
-   is
-      Pos : Source_Ptr;
+                                Offset : out Natural) is
    begin
-      --  Get FILE and position POS in the file.
-      Location_To_File_Pos (Location, File, Pos);
-
       case Source_Files.Table (File).Kind is
          when Source_File_File =>
             Location_To_Coord (Source_Files.Table (File), Pos,
@@ -382,6 +375,19 @@ package body Files_Map is
                                   Line_Pos, Line, Offset);
             end;
       end case;
+   end File_Pos_To_Coord;
+
+   procedure Location_To_Coord (Location : Location_Type;
+                                File : out Source_File_Entry;
+                                Line_Pos : out Source_Ptr;
+                                Line : out Positive;
+                                Offset : out Natural)
+   is
+      Pos : Source_Ptr;
+   begin
+      --  Get FILE and position POS in the file.
+      Location_To_File_Pos (Location, File, Pos);
+      File_Pos_To_Coord (File, Pos, Line_Pos, Line, Offset);
    end Location_To_Coord;
 
    function Location_File_To_Pos
@@ -530,6 +536,50 @@ package body Files_Map is
       Name := Get_Identifier (Filename (Separator_Pos + 1 .. Filename'Last));
    end Normalize_Pathname;
 
+   function Find_Language (Filename : String) return Language_Type
+   is
+      P, E : Natural;
+      Ext : String (1 .. 5);
+   begin
+      P := Filename'Last;
+      E := Ext'Last;
+      loop
+         if P <= Filename'First
+           or else E < Ext'First
+         then
+            return Language_Unknown;
+         end if;
+         case Filename (P) is
+            when 'a' .. 'z' =>
+               Ext (E) := Filename (P);
+            when 'A' .. 'Z' =>
+               Ext (E) := Character'Val (Character'Pos (Filename (P))
+                                           - Character'Pos ('A')
+                                           + Character'Pos ('a'));
+            when '.' =>
+               if Ext (E + 1 .. Ext'Last) = "vhd"
+                 or else Ext (E + 1 .. Ext'Last) = "vhdl"
+               then
+                  return Language_Vhdl;
+               end if;
+               if Ext (E + 1 .. Ext'Last) = "v"
+                 or else Ext (E + 1 .. Ext'Last) = "v"
+                 or else Ext (E + 1 .. Ext'Last) = "sv"
+                 or else Ext (E + 1 .. Ext'Last) = "svh"
+               then
+                  return Language_Verilog;
+               end if;
+               if Ext (E + 1 .. Ext'Last) = "psl" then
+                  return Language_Psl;
+               end if;
+            when others =>
+               return Language_Unknown;
+         end case;
+         P := P - 1;
+         E := E - 1;
+      end loop;
+   end Find_Language;
+
    --  Find a source_file by DIRECTORY and NAME.
    --  Return NO_SOURCE_FILE_ENTRY if not already opened.
    function Find_Source_File (Directory : Name_Id; Name: Name_Id)
@@ -572,7 +622,7 @@ package body Files_Map is
                                    Cache_Line => 1,
                                    Gap_Start => Source_Ptr_Last,
                                    Gap_Last => Source_Ptr_Last);
-      Lines_Tables.Init (Source_Files.Table (Res).Lines);
+      Lines_Tables.Init (Source_Files.Table (Res).Lines, Lines_Table_Init);
       File_Add_Line_Number (Res, 1, Source_Ptr_Org);
       return Res;
    end Create_Source_File_Entry;
@@ -618,9 +668,10 @@ package body Files_Map is
       return Create_Source_File_From_String (Name, "");
    end Create_Virtual_Source_File;
 
-   function Create_Instance_Source_File
-     (Ref : Source_File_Entry; Loc : Location_Type; Inst : Nodes.Node_Type)
-     return Source_File_Entry
+   function Create_Instance_Source_File (Ref : Source_File_Entry;
+                                         Loc : Location_Type;
+                                         Inst : Vhdl.Types.Vhdl_Node)
+                                        return Source_File_Entry
    is
       pragma Unreferenced (Inst);
       Base : Source_File_Entry;
@@ -695,6 +746,7 @@ package body Files_Map is
      (Directory : Name_Id; Name: Name_Id; Length : Source_Ptr)
      return Source_File_Entry
    is
+      pragma Assert (Length >= 2);
       Res : Source_File_Entry;
    begin
       Res := Create_Source_File_Entry (Directory, Name);
@@ -708,7 +760,7 @@ package body Files_Map is
          --  Read_Source_File call must follow its Create_Source_File.
          pragma Assert (F.First_Location = Next_Location);
 
-         F.Last_Location := Next_Location + Location_Type (Length) + 1;
+         F.Last_Location := Next_Location + Location_Type (Length) - 1;
          Next_Location := F.Last_Location + 1;
       end;
 
@@ -813,6 +865,15 @@ package body Files_Map is
       return Res;
    end Read_Source_File;
 
+   procedure Discard_Source_File (File : Source_File_Entry)
+   is
+      pragma Assert (File <= Source_Files.Last);
+      F : Source_File_Record renames Source_Files.Table (File);
+   begin
+      F.File_Name := Null_Identifier;
+      F.Directory := Null_Identifier;
+   end Discard_Source_File;
+
    procedure Free_Source_File (File : Source_File_Entry)
    is
       procedure Free is new Ada.Unchecked_Deallocation
@@ -888,12 +949,31 @@ package body Files_Map is
       end;
    end Set_File_Length;
 
-   --  Return the length of the file (which is the size of the file buffer).
    function Get_File_Length (File: Source_File_Entry) return Source_Ptr is
    begin
       Check_File (File);
       return Source_Files.Table (File).File_Length;
    end Get_File_Length;
+
+   function Get_Content_Length (File : Source_File_Entry) return Source_Ptr
+   is
+      pragma Assert (File <= Source_Files.Last);
+      F : Source_File_Record renames Source_Files.Table (File);
+   begin
+      if F.Gap_Start >= F.File_Length then
+         return F.File_Length;
+      else
+         return F.File_Length - (F.Gap_Last - F.Gap_Start + 1);
+      end if;
+   end Get_Content_Length;
+
+   function Get_Buffer_Length (File : Source_File_Entry) return Source_Ptr
+   is
+      pragma Assert (File <= Source_Files.Last);
+      F : Source_File_Record renames Source_Files.Table (File);
+   begin
+      return Source_Ptr (F.Last_Location - F.First_Location + 1);
+   end Get_Buffer_Length;
 
    --  Return the name of the file.
    function Get_File_Name (File: Source_File_Entry) return Name_Id is
@@ -1123,57 +1203,68 @@ package body Files_Map is
       end loop;
    end Debug_Source_Lines;
 
+   procedure Debug_Source_File (File : Source_File_Entry)
+   is
+      F : Source_File_Record renames Source_Files.Table(File);
+   begin
+      Log ("*");
+      Log (Source_File_Entry'Image (File));
+      Log (" name: " & Image (F.File_Name));
+      Log (" dir:" & Image (F.Directory));
+      Log (" file length:" & Source_Ptr'Image (F.File_Length));
+      Log_Line;
+      Log (" location:" & Location_Type'Image (F.First_Location)
+             & " -" & Location_Type'Image (F.Last_Location));
+      Log_Line;
+      if F.Checksum /= No_File_Checksum_Id then
+         Log (" checksum: " & Get_File_Checksum_String (F.Checksum));
+         Log_Line;
+      end if;
+      case F.Kind is
+         when Source_File_File =>
+            if F.Source = null then
+               Log (" no buf");
+            else
+               Log (" buf:" & Source_Ptr'Image (F.Source'First)
+                      & " -" & Source_Ptr'Image (F.Source'Last));
+            end if;
+            Log_Line;
+            Log (" nbr lines:"
+                   & Natural'Image (Lines_Tables.Last (F.Lines)));
+            Log_Line;
+            Log (" Gap:" & Source_Ptr'Image (F.Gap_Start)
+                   & " -" & Source_Ptr'Image (F.Gap_Last));
+            Log_Line;
+         when Source_File_String =>
+            null;
+         when Source_File_Instance =>
+            Log (" instance from:" & Source_File_Entry'Image (F.Ref));
+            Log (", base:" & Source_File_Entry'Image (F.Base));
+            Log (", loc:" & Image (F.Instance_Loc));
+            Log_Line;
+      end case;
+   end Debug_Source_File;
+
    procedure Debug_Source_Files is
    begin
       for I in Source_Files.First .. Source_Files.Last loop
-         declare
-            F : Source_File_Record renames Source_Files.Table(I);
-         begin
-            Log ("*");
-            Log (Source_File_Entry'Image (I));
-            Log (" name: " & Image (F.File_Name));
-            Log (" dir:" & Image (F.Directory));
-            Log (" file length:" & Source_Ptr'Image (F.File_Length));
-            Log_Line;
-            Log (" location:" & Location_Type'Image (F.First_Location)
-                   & " -" & Location_Type'Image (F.Last_Location));
-            Log_Line;
-            if F.Checksum /= No_File_Checksum_Id then
-               Log (" checksum: " & Get_File_Checksum_String (F.Checksum));
-               Log_Line;
-            end if;
-            case F.Kind is
-               when Source_File_File =>
-                  Log (" buf:" & Source_Ptr'Image (F.Source'First)
-                         & " -" & Source_Ptr'Image (F.Source'Last));
-                  Log_Line;
-                  Log (" nbr lines:"
-                         & Natural'Image (Lines_Tables.Last (F.Lines)));
-                  Log_Line;
-                  Log (" Gap:" & Source_Ptr'Image (F.Gap_Start)
-                         & " -" & Source_Ptr'Image (F.Gap_Last));
-                  Log_Line;
-               when Source_File_String =>
-                  null;
-               when Source_File_Instance =>
-                  Log (" instance from:" & Source_File_Entry'Image (F.Ref));
-                  Log (", base:" & Source_File_Entry'Image (F.Base));
-                  Log (", loc:" & Image (F.Instance_Loc));
-                  Log_Line;
-            end case;
-         end;
+         Debug_Source_File (I);
       end loop;
    end Debug_Source_Files;
 
    pragma Unreferenced (Debug_Source_Lines);
    pragma Unreferenced (Debug_Source_Loc);
 
-   procedure Initialize is
+   procedure Finalize is
    begin
       for I in Source_Files.First .. Source_Files.Last loop
          Free_Source_File (I);
       end loop;
       Source_Files.Free;
+   end Finalize;
+
+   procedure Initialize is
+   begin
       Source_Files.Init;
       Next_Location := Location_Nil + 1;
    end Initialize;

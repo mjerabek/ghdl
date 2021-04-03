@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) -  'image subprograms.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -23,13 +21,12 @@
 --  however invalidate any other reasons why the executable file might be
 --  covered by the GNU Public License.
 with System; use System;
-with System.Storage_Elements; --  Work around GNAT bug.
-pragma Unreferenced (System.Storage_Elements);
 with Ada.Unchecked_Conversion;
 with Grt.Rtis_Utils; use Grt.Rtis_Utils;
 with Grt.Processes; use Grt.Processes;
-with Grt.Vstrings; use Grt.Vstrings;
 with Grt.Errors; use Grt.Errors;
+with Grt.Errors_Exec; use Grt.Errors_Exec;
+with Grt.To_Strings; use Grt.To_Strings;
 
 package body Grt.Images is
    function To_Std_String_Basep is new Ada.Unchecked_Conversion
@@ -187,7 +184,7 @@ package body Grt.Images is
      (Res : Std_String_Ptr; Val : Ghdl_F64; Format : Std_String_Ptr)
    is
       C_Format : String (1 .. Positive (Format.Bounds.Dim_1.Length + 1));
-      Str : Grt.Vstrings.String_Real_Format;
+      Str : String_Real_Format;
       P : Natural;
    begin
       for I in 1 .. C_Format'Last - 1 loop
@@ -332,7 +329,7 @@ package body Grt.Images is
      (Res : Std_String_Ptr;
       Val : Std_Time; Unit : Std_Time; Rti : Ghdl_Rti_Access)
    is
-      Str : Grt.Vstrings.String_Time_Unit;
+      Str : String_Time_Unit;
       First : Natural;
       Phys : constant Ghdl_Rtin_Type_Physical_Acc
         := To_Ghdl_Rtin_Type_Physical_Acc (Rti);
@@ -350,7 +347,7 @@ package body Grt.Images is
       if Unit_Name = null then
          Error ("no unit for to_string");
       end if;
-      Grt.Vstrings.To_String (Str, First, Ghdl_I64 (Val), Ghdl_I64 (Unit));
+      To_String (Str, First, Ghdl_I64 (Val), Ghdl_I64 (Unit));
       Unit_Len := strlen (Unit_Name);
       declare
          L : constant Natural := Str'Last + 1 - First;

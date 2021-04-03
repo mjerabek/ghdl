@@ -1,20 +1,18 @@
 --  Ortho specifications.
 --  Copyright (C) 2002, 2003, 2004, 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with Interfaces; use Interfaces;
 with Ortho_Ident;
 use Ortho_Ident;
@@ -51,8 +49,8 @@ package ORTHO_NODES is
 
    --  Build a record type.
    procedure Start_Record_Type (Elements : out O_Element_List);
-   --  Add a field in the record; not constrained array are prohibited, since
-   --  its size is unlimited.
+   --  Add a field in the record.  Unconstrained fields must be at the end,
+   --  and cannot be followed by a constrained one.
    procedure New_Record_Field
      (Elements : in out O_Element_List;
       El : out O_Fnode;
@@ -60,6 +58,17 @@ package ORTHO_NODES is
    --  Finish the record type.
    procedure Finish_Record_Type
      (Elements : in out O_Element_List; Res : out O_Tnode);
+
+   type O_Element_Sublist is limited private;
+
+   --  Build a record subtype.
+   --  Re-declare only unconstrained fields with a subtype of them.
+   procedure Start_Record_Subtype
+     (Rtype : O_Tnode; Elements : out O_Element_Sublist);
+   procedure New_Subrecord_Field
+     (Elements : in out O_Element_Sublist; El : out O_Fnode; Etype : O_Tnode);
+   procedure Finish_Record_Subtype
+     (Elements : in out O_Element_Sublist; Res : out O_Tnode);
 
    -- Build an uncomplete record type:
    -- First call NEW_UNCOMPLETE_RECORD_TYPE, which returns a record type.
@@ -92,8 +101,8 @@ package ORTHO_NODES is
      return O_Tnode;
 
    --  Build a constrained array type.
-   function New_Constrained_Array_Type (Atype : O_Tnode; Length : O_Cnode)
-     return O_Tnode;
+   function New_Array_Subtype
+     (Atype : O_Tnode; El_Type : O_Tnode; Length : O_Cnode) return O_Tnode;
 
    --  Build a scalar type; size may be 8, 16, 32 or 64.
    function New_Unsigned_Type (Size : Natural) return O_Tnode;
@@ -153,7 +162,8 @@ package ORTHO_NODES is
    procedure Finish_Record_Aggr (List : in out O_Record_Aggr_List;
                                  Res : out O_Cnode);
 
-   procedure Start_Array_Aggr (List : out O_Array_Aggr_List; Atype : O_Tnode);
+   procedure Start_Array_Aggr
+     (List : out O_Array_Aggr_List; Atype : O_Tnode; Len : Unsigned_32);
    procedure New_Array_Aggr_El (List : in out O_Array_Aggr_List;
                                 Value : O_Cnode);
    procedure Finish_Array_Aggr (List : in out O_Array_Aggr_List;
@@ -165,8 +175,12 @@ package ORTHO_NODES is
 
    --  Returns the size in bytes of ATYPE.  The result is a literal of
    --  unsigned type RTYPE
-   --  ATYPE cannot be an unconstrained array type.
+   --  ATYPE cannot be an unconstrained type.
    function New_Sizeof (Atype : O_Tnode; Rtype : O_Tnode) return O_Cnode;
+
+   --  Get the size of the bounded part of a record.
+   function New_Record_Sizeof
+     (Atype : O_Tnode; Rtype : O_Tnode) return O_Cnode;
 
    --  Returns the alignment in bytes for ATYPE.  The result is a literal of
    --  unsgined type RTYPE.
@@ -306,6 +320,7 @@ package ORTHO_NODES is
    --  Allowed conversions are:
    --  FIXME: to write.
    function New_Convert_Ov (Val : O_Enode; Rtype : O_Tnode) return O_Enode;
+   function New_Convert (Val : O_Enode; Rtype : O_Tnode) return O_Enode;
 
    --  Get the address of LVALUE.
    --  ATYPE must be a type access whose designated type is the type of LVALUE.

@@ -1,27 +1,25 @@
 --  Iir to ortho translator.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Std_Names;
-with Std_Package; use Std_Package;
-with Errorout; use Errorout;
-with Sem_Inst;
-with Nodes_Meta;
-with Iirs_Utils; use Iirs_Utils;
+with Vhdl.Std_Package; use Vhdl.Std_Package;
+with Vhdl.Errors; use Vhdl.Errors;
+with Vhdl.Sem_Inst;
+with Vhdl.Nodes_Meta;
+with Vhdl.Utils; use Vhdl.Utils;
 with Trans.Chap3;
 with Trans.Chap4;
 with Trans.Chap5;
@@ -114,6 +112,8 @@ package body Trans.Chap2 is
                Mech := Pass_By_Address;
             end if;
             Info.Interface_Mechanism (Mode_Value) := Mech;
+         when Iir_Kind_Interface_Quantity_Declaration =>
+            raise Internal_Error;
       end case;
    end Translate_Interface_Mechanism;
 
@@ -146,7 +146,7 @@ package body Trans.Chap2 is
       --  Translate interface types.
       Inter := Get_Interface_Declaration_Chain (Spec);
       while Inter /= Null_Iir loop
-         Chap3.Translate_Object_Subtype (Inter);
+         Chap3.Translate_Object_Subtype_Indication (Inter);
          Inter := Get_Chain (Inter);
       end loop;
 
@@ -209,7 +209,7 @@ package body Trans.Chap2 is
       --  Translate interface types.
       Inter := Get_Interface_Declaration_Chain (Spec);
       while Inter /= Null_Iir loop
-         Chap3.Elab_Object_Subtype (Get_Type (Inter));
+         Chap3.Elab_Object_Subtype_Indication (Inter);
          Inter := Get_Chain (Inter);
       end loop;
    end Elab_Subprogram_Interfaces;
@@ -1297,17 +1297,20 @@ package body Trans.Chap2 is
                  Instantiate_Var (Src.Package_Instance_Body_Var),
                Package_Instance_Elab_Subprg =>
                  Src.Package_Instance_Elab_Subprg,
-               Package_Instance_Spec_Scope =>
-                 Instantiate_Var_Scope (Src.Package_Instance_Spec_Scope),
+               Package_Instance_Spec_Scope => Null_Var_Scope,
                Package_Instance_Body_Scope =>
                  Instantiate_Var_Scope (Src.Package_Instance_Body_Scope));
-            Push_Instantiate_Var_Scope
-              (Dest.Package_Instance_Spec_Scope'Access,
-               Src.Package_Instance_Spec_Scope'Access);
+            --  The body scope needs to be instantiated before instantiating
+            --  the spec scope, as the spec scope is a field of the body
+            --  scope.
             Push_Instantiate_Var_Scope
               (Dest.Package_Instance_Body_Scope'Access,
                Src.Package_Instance_Body_Scope'Access);
-
+            Dest.Package_Instance_Spec_Scope :=
+              Instantiate_Var_Scope (Src.Package_Instance_Spec_Scope);
+            Push_Instantiate_Var_Scope
+              (Dest.Package_Instance_Spec_Scope'Access,
+               Src.Package_Instance_Spec_Scope'Access);
          when Kind_Field =>
             Dest.all := (Kind => Kind_Field,
                          Mark => False,
@@ -1356,10 +1359,12 @@ package body Trans.Chap2 is
                   null;
             end case;
          when Kind_Package_Instance =>
-            Pop_Instantiate_Var_Scope
-              (Info.Package_Instance_Body_Scope'Access);
+            --  The order is important: it must be the reverse order of the
+            --  push.
             Pop_Instantiate_Var_Scope
               (Info.Package_Instance_Spec_Scope'Access);
+            Pop_Instantiate_Var_Scope
+              (Info.Package_Instance_Body_Scope'Access);
          when others =>
             null;
       end case;
@@ -1373,11 +1378,11 @@ package body Trans.Chap2 is
       end if;
 
       declare
-         use Nodes_Meta;
+         use Vhdl.Nodes_Meta;
          Kind      : constant Iir_Kind := Get_Kind (N);
          Fields    : constant Fields_Array := Get_Fields (Kind);
          F         : Fields_Enum;
-         Orig      : constant Iir := Sem_Inst.Get_Origin (N);
+         Orig      : constant Iir := Vhdl.Sem_Inst.Get_Origin (N);
          pragma Assert (Orig /= Null_Iir);
          Orig_Info : constant Ortho_Info_Acc := Get_Info (Orig);
          Info      : Ortho_Info_Acc;
@@ -1455,7 +1460,7 @@ package body Trans.Chap2 is
                   | Type_Iir_Constraint
                   | Type_Iir_Mode
                   | Type_Iir_Index32
-                  | Type_Iir_Int64
+                  | Type_Int64
                   | Type_Boolean
                   | Type_Iir_Staticness
                   | Type_Iir_All_Sensitized
@@ -1463,12 +1468,14 @@ package body Trans.Chap2 is
                   | Type_Tri_State_Type
                   | Type_Iir_Pure_State
                   | Type_Iir_Delay_Mechanism
+                  | Type_Iir_Force_Mode
                   | Type_Iir_Predefined_Functions
-                  | Type_Iir_Direction
+                  | Type_Direction_Type
                   | Type_Iir_Int32
                   | Type_Int32
-                  | Type_Iir_Fp64
+                  | Type_Fp64
                   | Type_Token_Type
+                  | Type_Scalar_Size
                   | Type_Name_Id =>
                   null;
             end case;
@@ -1489,7 +1496,7 @@ package body Trans.Chap2 is
    begin
       Inter := Chain;
       while Inter /= Null_Iir loop
-         Orig := Sem_Inst.Get_Origin (Inter);
+         Orig := Vhdl.Sem_Inst.Get_Origin (Inter);
          Orig_Info := Get_Info (Orig);
 
          Info := Add_Info (Inter, Orig_Info.Kind);

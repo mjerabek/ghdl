@@ -1,109 +1,173 @@
 --  GHDL driver - local commands.
 --  Copyright (C) 2002, 2003, 2004, 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
-with Ada.Text_IO; use Ada.Text_IO;
+--  along with this program.  If not, see <gnu.org/licenses>.
+
 with Ada.Command_Line;
 with GNAT.Directory_Operations;
-with Types; use Types;
-with Libraries;
-with Sem_Lib;
-with Std_Package;
+
+with Simple_IO; use Simple_IO;
 with Flags;
 with Name_Table;
 with Std_Names;
-with Disp_Vhdl;
 with Default_Paths;
-with Scanner;
 with Errorout;
-with Configuration;
 with Files_Map;
-with Options;
-with Iirs_Utils; use Iirs_Utils;
+with Libraries;
+with Version;
+
+with Vhdl.Sem_Lib;
+with Vhdl.Std_Package;
+with Vhdl.Scanner;
+with Vhdl.Configuration;
+with Vhdl.Utils; use Vhdl.Utils;
+with Vhdl.Prints;
 
 package body Ghdllocal is
    --  Version of the IEEE library to use.  This just change paths.
-   type Ieee_Lib_Kind is (Lib_Standard, Lib_None, Lib_Synopsys, Lib_Mentor);
+   type Ieee_Lib_Kind is (Lib_Standard, Lib_None, Lib_Synopsys);
    Flag_Ieee : Ieee_Lib_Kind;
 
    --  If TRUE, generate 32bits code on 64bits machines.
    Flag_32bit : Boolean := False;
 
+   procedure Initialize_Flags is
+   begin
+      Flag_Ieee := Lib_Standard;
+      Flag_Verbose := False;
+   end Initialize_Flags;
+
    procedure Compile_Init is
    begin
       Options.Initialize;
-      Flag_Ieee := Lib_Standard;
-      Flag_Verbose := False;
+      Initialize_Flags;
    end Compile_Init;
 
    procedure Init (Cmd : in out Command_Lib)
    is
       pragma Unreferenced (Cmd);
    begin
-      Compile_Init;
+      Initialize_Flags;
    end Init;
 
-   function Decode_Driver_Option (Opt : String) return Boolean
+   function Is_Generic_Override_Option (Opt : String) return Boolean
    is
+      pragma Assert (Opt'First = 1);
+   begin
+      if Opt (1 .. 2) /= "-g" then
+         return False;
+      end if;
+      --  Look for '='.
+      for I in 3 .. Opt'Last loop
+         if Opt (I) = '=' then
+            --  Ideally, OPT must be of the form -gGEN=VAL, where GEN is
+            --  a generic name, and VAL a literal.
+            return True;
+         end if;
+      end loop;
+      return False;
+   end Is_Generic_Override_Option;
+
+   function Decode_Generic_Override_Option (Opt : String) return Option_State
+   is
+      use Errorout;
+      pragma Assert (Opt'First = 1);
+      pragma Assert (Opt'Last >= 5);
+      Eq_Pos : Natural;
+      Id : Name_Id;
+   begin
+      Eq_Pos := 0;
+      for I in 3 .. Opt'Last loop
+         if Opt (I) = '=' then
+            Eq_Pos := I;
+            exit;
+         end if;
+      end loop;
+      if Eq_Pos = 0 then
+         Error_Msg_Option ("missing '=' in generic override option");
+         return Option_Err;
+      elsif Eq_Pos < 3 then
+         Error_Msg_Option ("missing generic name in generic override option");
+         return Option_Err;
+      elsif Eq_Pos = Opt'Last then
+         Error_Msg_Option ("missing value in generic override option");
+         return Option_Err;
+      end if;
+
+      declare
+         Res : String (1 .. Eq_Pos - 3) := Opt (3 .. Eq_Pos - 1);
+         Err : Boolean;
+      begin
+         Vhdl.Scanner.Convert_Identifier (Res, Err);
+         if Err then
+            Error_Msg_Option
+              ("incorrect generic name in generic override option");
+            return Option_Err;
+         end if;
+         Id := Name_Table.Get_Identifier (Res);
+      end;
+
+      Vhdl.Configuration.Add_Generic_Override
+        (Id, Opt (Eq_Pos + 1 .. Opt'Last));
+      return Option_Ok;
+   end Decode_Generic_Override_Option;
+
+   function Decode_Driver_Option (Opt : String) return Option_State
+   is
+      use Errorout;
       pragma Assert (Opt'First = 1);
    begin
       if Opt = "-v" and then Flag_Verbose = False then
          Flag_Verbose := True;
-         return True;
       elsif Opt'Length > 9 and then Opt (1 .. 9) = "--PREFIX=" then
          Switch_Prefix_Path := new String'(Opt (10 .. Opt'Last));
-         return True;
       elsif Opt = "--ieee=synopsys" then
          Flag_Ieee := Lib_Synopsys;
-         return True;
       elsif Opt = "--ieee=mentor" then
-         Flag_Ieee := Lib_Mentor;
-         return True;
+         Warning_Msg_Option
+           (Warnid_Deprecated_Option,
+            "option --ieee=mentor is deprecated, replaced by --ieee=synopsys");
+         Flag_Ieee := Lib_Synopsys;
       elsif Opt = "--ieee=none" then
          Flag_Ieee := Lib_None;
-         return True;
       elsif Opt = "--ieee=standard" then
          Flag_Ieee := Lib_Standard;
-         return True;
       elsif Opt = "-m32" then
          Flag_32bit := True;
-         return True;
-      elsif Opt'Length >= 2
-        and then (Opt (2) = 'g' or Opt (2) = 'O')
+      elsif Opt'Length >= 2 and then Opt (2) = 'O' then
+         --  Silently accept -O
+         null;
+      elsif Opt'Length >= 2 and then Opt (2) = 'g'
+        and then not Is_Generic_Override_Option (Opt)
       then
-         --  Silently accept -g and -O.
-         return True;
+         --  Silently accept -g (if this is not a generic override option).
+         null;
       else
          return Options.Parse_Option (Opt);
       end if;
+      return Option_Ok;
    end Decode_Driver_Option;
 
    procedure Decode_Option (Cmd : in out Command_Lib;
                             Option : String;
                             Arg : String;
-                            Res : out Option_Res)
+                            Res : out Option_State)
    is
       pragma Unreferenced (Cmd);
       pragma Unreferenced (Arg);
    begin
-      if Decode_Driver_Option (Option) then
-         Res := Option_Ok;
-      else
-         Res := Option_Bad;
-      end if;
+      Res := Decode_Driver_Option (Option);
    end Decode_Option;
 
    procedure Disp_Long_Help (Cmd : Command_Lib)
@@ -112,15 +176,20 @@ package body Ghdllocal is
       procedure P (Str : String) renames Put_Line;
    begin
       P ("Main options (try --options-help for details):");
-      P (" --std=XX       Use XX as VHDL standard (87,93c,93,00,02 or 08)");
-      P (" --work=NAME    Set the name of the WORK library");
-      P (" -PDIR          Add DIR in the library search path");
-      P (" --workdir=DIR  Specify the directory of the WORK library");
-      P (" --PREFIX=DIR   Specify installation prefix");
-      P (" --ieee=NAME    Use NAME as ieee library, where name is:");
-      P ("    standard: standard version (default)");
-      P ("    synopsys, mentor: vendor version (not advised)");
-      P ("    none: do not use a predefined ieee library");
+      P (" --std=XX");
+      P ("   Use XX as VHDL standard (87,93c,93,00,02 or 08)");
+      P (" --work=NAME");
+      P ("   Set the name of the WORK library");
+      P (" -PDIR");
+      P ("   Add DIR in the library search path");
+      P (" --workdir=DIR");
+      P ("   Specify the directory of the WORK library");
+      P (" -fsynopsys");
+      P ("   Allow to use synopsys packages in ieee library");
+      P (" -frelaxed");
+      P ("   Relax semantic rules");
+      P (" -fexplicit");
+      P ("   Gives priority to explicit operator redefinitions");
    end Disp_Long_Help;
 
    function Is_Directory_Separator (C : Character) return Boolean is
@@ -267,7 +336,7 @@ package body Ghdllocal is
    end Set_Prefix_From_Program_Path;
 
    --  Extract Exec_Prefix from executable name.
-   procedure Set_Exec_Prefix
+   procedure Set_Exec_Prefix_From_Program_Name
    is
       use GNAT.Directory_Operations;
       Prog_Path : constant String := Ada.Command_Line.Command_Name;
@@ -295,7 +364,7 @@ package body Ghdllocal is
          Set_Prefix_From_Program_Path (Exec_Path.all);
          Free (Exec_Path);
       end if;
-   end Set_Exec_Prefix;
+   end Set_Exec_Prefix_From_Program_Name;
 
    function Get_Version_Path return String
    is
@@ -304,10 +373,9 @@ package body Ghdllocal is
       case Vhdl_Std is
          when Vhdl_87 =>
             return "v87";
-         when Vhdl_93c
-           | Vhdl_93
-           | Vhdl_00
-           | Vhdl_02 =>
+         when Vhdl_93
+            | Vhdl_00
+            | Vhdl_02 =>
             return "v93";
          when Vhdl_08 =>
             return "v08";
@@ -334,7 +402,7 @@ package body Ghdllocal is
       Libraries.Add_Library_Path (Path);
    end Add_Library_Name;
 
-   procedure Setup_Libraries (Load : Boolean)
+   function Setup_Libraries (Load : Boolean) return Boolean
    is
       use Flags;
    begin
@@ -345,7 +413,7 @@ package body Ghdllocal is
       end if;
 
       --  Compute Exec_Prefix.
-      Set_Exec_Prefix;
+      Set_Exec_Prefix_From_Program_Name;
 
       --  Set prefix path.
       --  If not set by command line, try environment variable.
@@ -385,15 +453,11 @@ package body Ghdllocal is
             when Lib_Standard =>
                Add_Library_Name ("ieee");
             when Lib_Synopsys =>
-               Add_Library_Name ("synopsys");
-            when Lib_Mentor =>
-               if Vhdl_Std >= Vhdl_08 then
-                  Warning ("--ieee=mentor is ignored for --std=08");
-               else
-                  Add_Library_Name ("mentor");
-               end if;
+               Add_Library_Name ("ieee");
+               Flag_Synopsys := True;
             when Lib_None =>
-               null;
+               --  Allow synopsys packages.
+               Flag_Synopsys := True;
          end case;
 
          --  For std: just add the library prefix.
@@ -401,9 +465,12 @@ package body Ghdllocal is
            (Get_Machine_Path_Prefix & Directory_Separator);
       end if;
       if Load then
-         Libraries.Load_Std_Library;
+         if not Libraries.Load_Std_Library then
+            return False;
+         end if;
          Libraries.Load_Work_Library;
       end if;
+      return True;
    end Setup_Libraries;
 
    procedure Disp_Config_Prefixes is
@@ -415,14 +482,16 @@ package body Ghdllocal is
          Put_Line (Switch_Prefix_Path.all);
       end if;
 
+      if not Setup_Libraries (False) then
+         Put_Line ("(error while loading libraries)");
+      end if;
+
       Put ("environment prefix (GHDL_PREFIX): ");
       if Prefix_Env = null then
          Put_Line ("(not set)");
       else
          Put_Line (Prefix_Env.all);
       end if;
-
-      Setup_Libraries (False);
 
       Put ("exec prefix (from program name): ");
       if Exec_Prefix = null then
@@ -552,28 +621,33 @@ package body Ghdllocal is
    type Command_Dir is new Command_Lib with null record;
    function Decode_Command (Cmd : Command_Dir; Name : String) return Boolean;
    function Get_Short_Help (Cmd : Command_Dir) return String;
-   procedure Perform_Action (Cmd : Command_Dir; Args : Argument_List);
+   procedure Perform_Action (Cmd : in out Command_Dir; Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Dir; Name : String) return Boolean
    is
       pragma Unreferenced (Cmd);
    begin
-      --  '-d' is for compatibility.
-      return Name = "-d" or else Name = "--dir";
+      return Name = "dir"
+        or else Name = "--dir"
+        or else Name = "-d";  --  '-d' is for compatibility.
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Dir) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "--dir [LIBs]       Disp contents of the libraries";
+      return "dir [LIBs]"
+        & ASCII.LF & "  Display contents of the libraries"
+        & ASCII.LF & "  alias: --dir";
    end Get_Short_Help;
 
-   procedure Perform_Action (Cmd : Command_Dir; Args : Argument_List)
+   procedure Perform_Action (Cmd : in out Command_Dir; Args : Argument_List)
    is
       pragma Unreferenced (Cmd);
    begin
-      Setup_Libraries (True);
+      if not Setup_Libraries (True) then
+         return;
+      end if;
 
       if Args'Length = 0 then
          Disp_Library (Std_Names.Name_Work);
@@ -588,20 +662,24 @@ package body Ghdllocal is
    type Command_Find is new Command_Lib with null record;
    function Decode_Command (Cmd : Command_Find; Name : String) return Boolean;
    function Get_Short_Help (Cmd : Command_Find) return String;
-   procedure Perform_Action (Cmd : Command_Find; Args : Argument_List);
+   procedure Perform_Action (Cmd : in out Command_Find; Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Find; Name : String) return Boolean
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "-f";
+      return Name = "files"
+        or else Name = "-f";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Find) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "-f FILEs           Disp units in FILES";
+      return "files FILEs"
+        & ASCII.LF & "  Display units in FILES"
+        & ASCII.LF & "  alias: -f";
+
    end Get_Short_Help;
 
    --  Return TRUE is UNIT can be at the apex of a design hierarchy.
@@ -621,7 +699,7 @@ package body Ghdllocal is
    end Is_Top_Entity;
 
    --  Disp contents design files FILES.
-   procedure Perform_Action (Cmd : Command_Find; Args : Argument_List)
+   procedure Perform_Action (Cmd : in out Command_Find; Args : Argument_List)
    is
       pragma Unreferenced (Cmd);
 
@@ -633,12 +711,14 @@ package body Ghdllocal is
       Flag_Add : constant Boolean := False;
    begin
       Flags.Bootstrap := True;
-      Libraries.Load_Std_Library;
+      if not Libraries.Load_Std_Library then
+         raise Option_Error;
+      end if;
       Libraries.Load_Work_Library;
 
       for I in Args'Range loop
          Id := Get_Identifier (Args (I).all);
-         Design_File := Sem_Lib.Load_File_Name (Id);
+         Design_File := Vhdl.Sem_Lib.Load_File_Name (Id);
          if Design_File /= Null_Iir then
             Unit := Get_First_Design_Unit (Design_File);
             while Unit /= Null_Iir loop
@@ -665,7 +745,7 @@ package body Ghdllocal is
    function Decode_Command (Cmd : Command_Import; Name : String)
                            return Boolean;
    function Get_Short_Help (Cmd : Command_Import) return String;
-   procedure Perform_Action (Cmd : Command_Import;
+   procedure Perform_Action (Cmd : in out Command_Import;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Import; Name : String)
@@ -673,17 +753,20 @@ package body Ghdllocal is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "-i";
+      return Name = "import"
+        or else Name = "-i";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Import) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "-i [OPTS] FILEs    Import units of FILEs";
+      return "import [OPTS] FILEs"
+        & ASCII.LF & "  Import units of FILEs"
+        & ASCII.LF & "  alias: -i";
    end Get_Short_Help;
 
-   procedure Perform_Action (Cmd : Command_Import; Args : Argument_List)
+   procedure Perform_Action (Cmd : in out Command_Import; Args : Argument_List)
    is
       pragma Unreferenced (Cmd);
       use Errorout;
@@ -694,34 +777,35 @@ package body Ghdllocal is
       Next_Unit : Iir;
       Lib : Iir;
    begin
-      Setup_Libraries (True);
+      if not Setup_Libraries (True) then
+         return;
+      end if;
 
       --  Parse all files.
       for I in Args'Range loop
          Id := Name_Table.Get_Identifier (Args (I).all);
-         Design_File := Sem_Lib.Load_File_Name (Id);
-         if Design_File /= Null_Iir then
-            Unit := Get_First_Design_Unit (Design_File);
-            while Unit /= Null_Iir loop
-               if Flag_Verbose then
-                  Lib := Get_Library_Unit (Unit);
-                  Disp_Library_Unit (Lib);
-                  if Is_Top_Entity (Lib) then
-                     Put (" **");
-                  end if;
-                  New_Line;
-               end if;
-               Next_Unit := Get_Chain (Unit);
-               Set_Chain (Unit, Null_Iir);
-               Libraries.Add_Design_Unit_Into_Library (Unit);
-               Unit := Next_Unit;
-            end loop;
-         end if;
-      end loop;
+         Design_File := Vhdl.Sem_Lib.Load_File_Name (Id);
 
-      if Nbr_Errors > 0 then
-         raise Compilation_Error;
-      end if;
+         if Nbr_Errors > 0 then
+            raise Compilation_Error;
+         end if;
+
+         Unit := Get_First_Design_Unit (Design_File);
+         while Unit /= Null_Iir loop
+            if Flag_Verbose then
+               Lib := Get_Library_Unit (Unit);
+               Disp_Library_Unit (Lib);
+               if Is_Top_Entity (Lib) then
+                  Put (" **");
+               end if;
+               New_Line;
+            end if;
+            Next_Unit := Get_Chain (Unit);
+            Set_Chain (Unit, Null_Iir);
+            Libraries.Add_Design_Unit_Into_Library (Unit);
+            Unit := Next_Unit;
+         end loop;
+      end loop;
 
       --  Analyze all files.
       if False then
@@ -734,7 +818,7 @@ package body Ghdllocal is
                     | Date_Analyzed =>
                      null;
                   when Date_Parsed =>
-                     Sem_Lib.Finish_Compilation (Unit, False);
+                     Vhdl.Sem_Lib.Finish_Compilation (Unit, False);
                   when others =>
                      raise Internal_Error;
                end case;
@@ -760,9 +844,9 @@ package body Ghdllocal is
    procedure Decode_Option (Cmd : in out Command_Check_Syntax;
                             Option : String;
                             Arg : String;
-                            Res : out Option_Res);
+                            Res : out Option_State);
    function Get_Short_Help (Cmd : Command_Check_Syntax) return String;
-   procedure Perform_Action (Cmd : Command_Check_Syntax;
+   procedure Perform_Action (Cmd : in out Command_Check_Syntax;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Check_Syntax; Name : String)
@@ -770,20 +854,23 @@ package body Ghdllocal is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "-s";
+      return Name = "syntax"
+        or else Name = "-s";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Check_Syntax) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "-s [OPTS] FILEs    Check syntax of FILEs";
+      return "syntax [OPTS] FILEs"
+        & ASCII.LF & "  Check syntax of FILEs"
+        & ASCII.LF & "  alias: -s";
    end Get_Short_Help;
 
    procedure Decode_Option (Cmd : in out Command_Check_Syntax;
                             Option : String;
                             Arg : String;
-                            Res : out Option_Res)
+                            Res : out Option_State)
    is
       pragma Assert (Option'First = 1);
    begin
@@ -809,8 +896,8 @@ package body Ghdllocal is
          Put (File_Name);
          Put_Line (":");
       end if;
-      Design_File := Sem_Lib.Load_File_Name (Id);
-      if Design_File = Null_Iir then
+      Design_File := Vhdl.Sem_Lib.Load_File_Name (Id);
+      if Errorout.Nbr_Errors /= 0 then
          return;
       end if;
 
@@ -822,7 +909,7 @@ package body Ghdllocal is
             New_Line;
          end if;
          -- Sem, canon, annotate a design unit.
-         Sem_Lib.Finish_Compilation (Unit, True);
+         Vhdl.Sem_Lib.Finish_Compilation (Unit, True);
 
          Next_Unit := Get_Chain (Unit);
          if Errorout.Nbr_Errors = 0 then
@@ -843,7 +930,10 @@ package body Ghdllocal is
    is
       Error_1 : Boolean;
    begin
-      Setup_Libraries (True);
+      if not Setup_Libraries (True) then
+         Error := True;
+         return;
+      end if;
 
       --  Parse all files.
       Error := False;
@@ -857,7 +947,7 @@ package body Ghdllocal is
       end if;
    end Analyze_Files;
 
-   procedure Perform_Action (Cmd : Command_Check_Syntax;
+   procedure Perform_Action (Cmd : in out Command_Check_Syntax;
                              Args : Argument_List)
    is
       Error : Boolean;
@@ -872,20 +962,23 @@ package body Ghdllocal is
    type Command_Clean is new Command_Lib with null record;
    function Decode_Command (Cmd : Command_Clean; Name : String) return Boolean;
    function Get_Short_Help (Cmd : Command_Clean) return String;
-   procedure Perform_Action (Cmd : Command_Clean; Args : Argument_List);
+   procedure Perform_Action (Cmd : in out Command_Clean; Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Clean; Name : String) return Boolean
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "--clean";
+      return Name = "clean"
+        or else Name = "--clean";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Clean) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "--clean            Remove generated files";
+      return "clean"
+        & ASCII.LF & "  Remove generated files"
+        & ASCII.LF & "  alias: --clean";
    end Get_Short_Help;
 
    procedure Delete (Str : String)
@@ -898,7 +991,7 @@ package body Ghdllocal is
       end if;
    end Delete;
 
-   procedure Perform_Action (Cmd : Command_Clean; Args : Argument_List)
+   procedure Perform_Action (Cmd : in out Command_Clean; Args : Argument_List)
    is
       pragma Unreferenced (Cmd);
       use Name_Table;
@@ -933,13 +1026,15 @@ package body Ghdllocal is
       Str : String_Access;
    begin
       if Args'Length /= 0 then
-         Error ("command '--clean' does not accept any argument");
+         Error ("command 'clean' does not accept any argument");
          raise Option_Error;
       end if;
 
       Flags.Bootstrap := True;
       --  Load libraries.
-      Libraries.Load_Std_Library;
+      if not Libraries.Load_Std_Library then
+         raise Option_Error;
+      end if;
       Libraries.Load_Work_Library;
 
       File := Get_Design_File_Chain (Libraries.Work_Library);
@@ -976,29 +1071,32 @@ package body Ghdllocal is
    function Decode_Command (Cmd : Command_Remove; Name : String)
                            return Boolean;
    function Get_Short_Help (Cmd : Command_Remove) return String;
-   procedure Perform_Action (Cmd : Command_Remove;
+   procedure Perform_Action (Cmd : in out Command_Remove;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Remove; Name : String) return Boolean
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "--remove";
+      return Name = "remove"
+        or else Name = "--remove";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Remove) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "--remove           Remove generated files and library file";
+      return "remove"
+        & ASCII.LF & "  Remove generated files and library file"
+        & ASCII.LF & "  alias: --remove";
    end Get_Short_Help;
 
-   procedure Perform_Action (Cmd : Command_Remove; Args : Argument_List)
+   procedure Perform_Action (Cmd : in out Command_Remove; Args : Argument_List)
    is
       use Name_Table;
    begin
       if Args'Length /= 0 then
-         Error ("command '--remove' does not accept any argument");
+         Error ("command 'remove' does not accept any argument");
          raise Option_Error;
       end if;
       Perform_Action (Command_Clean (Cmd), Args);
@@ -1011,23 +1109,26 @@ package body Ghdllocal is
    type Command_Copy is new Command_Lib with null record;
    function Decode_Command (Cmd : Command_Copy; Name : String) return Boolean;
    function Get_Short_Help (Cmd : Command_Copy) return String;
-   procedure Perform_Action (Cmd : Command_Copy; Args : Argument_List);
+   procedure Perform_Action (Cmd : in out Command_Copy; Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Copy; Name : String) return Boolean
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "--copy";
+      return Name = "copy"
+        or else Name = "--copy";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Copy) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "--copy             Copy work library to current directory";
+      return "copy"
+        & ASCII.LF & "  Copy work library to current directory"
+        & ASCII.LF & "  alias: --copy";
    end Get_Short_Help;
 
-   procedure Perform_Action (Cmd : Command_Copy; Args : Argument_List)
+   procedure Perform_Action (Cmd : in out Command_Copy; Args : Argument_List)
    is
       pragma Unreferenced (Cmd);
       use Name_Table;
@@ -1037,12 +1138,15 @@ package body Ghdllocal is
       Dir : Name_Id;
    begin
       if Args'Length /= 0 then
-         Error ("command '--copy' does not accept any argument");
+         Error ("command 'copy' does not accept any argument");
          raise Option_Error;
       end if;
 
-      Setup_Libraries (False);
-      Libraries.Load_Std_Library;
+      if not Setup_Libraries (False)
+        or else not Libraries.Load_Std_Library
+      then
+         return;
+      end if;
       Dir := Work_Directory;
       Work_Directory := Null_Identifier;
       Libraries.Load_Work_Library;
@@ -1087,7 +1191,7 @@ package body Ghdllocal is
    function Decode_Command (Cmd : Command_Disp_Standard; Name : String)
                            return Boolean;
    function Get_Short_Help (Cmd : Command_Disp_Standard) return String;
-   procedure Perform_Action (Cmd : Command_Disp_Standard;
+   procedure Perform_Action (Cmd : in out Command_Disp_Standard;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Disp_Standard; Name : String)
@@ -1095,28 +1199,33 @@ package body Ghdllocal is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "--disp-standard";
+      return Name = "disp-standard"
+        or else Name = "--disp-standard";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Disp_Standard) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "--disp-standard    Disp std.standard in pseudo-vhdl";
+      return "disp-standard"
+        & ASCII.LF & "  Disp std.standard in pseudo-vhdl"
+        & ASCII.LF & "  alias: --disp-standard";
    end Get_Short_Help;
 
-   procedure Perform_Action (Cmd : Command_Disp_Standard;
+   procedure Perform_Action (Cmd : in out Command_Disp_Standard;
                              Args : Argument_List)
    is
       pragma Unreferenced (Cmd);
    begin
       if Args'Length /= 0 then
-         Error ("command '--disp-standard' does not accept any argument");
+         Error ("command 'disp-standard' does not accept any argument");
          raise Option_Error;
       end if;
       Flags.Bootstrap := True;
-      Libraries.Load_Std_Library;
-      Disp_Vhdl.Disp_Vhdl (Std_Package.Std_Standard_Unit);
+      if not Libraries.Load_Std_Library then
+         raise Option_Error;
+      end if;
+      Vhdl.Prints.Disp_Vhdl (Vhdl.Std_Package.Std_Standard_Unit);
    end Perform_Action;
 
    --  Command --find-top.
@@ -1124,7 +1233,7 @@ package body Ghdllocal is
    function Decode_Command (Cmd : Command_Find_Top; Name : String)
                            return Boolean;
    function Get_Short_Help (Cmd : Command_Find_Top) return String;
-   procedure Perform_Action (Cmd : Command_Find_Top;
+   procedure Perform_Action (Cmd : in out Command_Find_Top;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Find_Top; Name : String)
@@ -1132,17 +1241,20 @@ package body Ghdllocal is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "--find-top";
+      return Name = "find-top"
+        or else Name = "--find-top";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Find_Top) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "--find-top         Disp possible top entity in work library";
+      return "find-top"
+        & ASCII.LF & "  Display possible top entity in work library"
+        & ASCII.LF & "  alias: --find-top";
    end Get_Short_Help;
 
-   procedure Perform_Action (Cmd : Command_Find_Top;
+   procedure Perform_Action (Cmd : in out Command_Find_Top;
                              Args : Argument_List)
    is
       use Libraries;
@@ -1150,7 +1262,9 @@ package body Ghdllocal is
       From : Iir;
       Top : Iir;
    begin
-      Setup_Libraries (True);
+      if not Setup_Libraries (True) then
+         return;
+      end if;
 
       if Args'Length = 0 then
          From := Work_Library;
@@ -1162,11 +1276,12 @@ package body Ghdllocal is
             raise Option_Error;
          end if;
       else
-         Error ("command '--find-top' accepts at most one argument");
+         Error ("command 'find-top' accepts at most one argument");
          raise Option_Error;
       end if;
 
-      Top := Configuration.Find_Top_Entity (From);
+      Top := Vhdl.Configuration.Find_Top_Entity
+        (From, Libraries.Command_Line_Location);
 
       if Top = Null_Iir then
          Error ("no top entity found");
@@ -1180,7 +1295,7 @@ package body Ghdllocal is
    function Decode_Command (Cmd : Command_Bug_Box; Name : String)
                            return Boolean;
    function Get_Short_Help (Cmd : Command_Bug_Box) return String;
-   procedure Perform_Action (Cmd : Command_Bug_Box;
+   procedure Perform_Action (Cmd : in out Command_Bug_Box;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Bug_Box; Name : String)
@@ -1188,17 +1303,20 @@ package body Ghdllocal is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "--bug-box";
+      return Name = "bug-box"
+        or else Name = "--bug-box";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Bug_Box) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "!--bug-box          Crash and emit a bug-box";
+      return "!bug-box"
+        & ASCII.LF & "  Crash and emit a bug-box"
+        & ASCII.LF & "  alias: --bug-box";
    end Get_Short_Help;
 
-   procedure Perform_Action (Cmd : Command_Bug_Box;
+   procedure Perform_Action (Cmd : in out Command_Bug_Box;
                              Args : Argument_List)
    is
       pragma Unreferenced (Cmd, Args);
@@ -1266,14 +1384,15 @@ package body Ghdllocal is
                Set_Design_File_Source (File, Fe);
                Unit := Get_First_Design_Unit (File);
                while Unit /= Null_Iir loop
-                  Sem_Lib.Load_Parse_Design_Unit (Unit, Null_Iir);
+                  Vhdl.Sem_Lib.Load_Parse_Design_Unit
+                    (Unit, Command_Line_Location);
                   Extract_Library_Clauses (Unit);
                   Unit := Get_Chain (Unit);
                end loop;
             else
                --  File has been modified.
                --  Parse it.
-               Design_File := Sem_Lib.Load_File (Fe);
+               Design_File := Vhdl.Sem_Lib.Load_File (Fe);
 
                --  Exit now in case of parse error.
                if Design_File = Null_Iir
@@ -1318,8 +1437,7 @@ package body Ghdllocal is
       end loop;
    end Check_No_Elab_Flag;
 
-   function Build_Dependence (Prim : String_Access; Sec : String_Access)
-     return Iir_List
+   function Build_Dependence (Prim : Name_Id; Sec : Name_Id) return Iir_List
    is
       procedure Build_Dependence_List (File : Iir_Design_File; List : Iir_List)
       is
@@ -1344,12 +1462,9 @@ package body Ghdllocal is
          Append_Element (List, File);
       end Build_Dependence_List;
 
-      use Configuration;
-      use Name_Table;
+      use Vhdl.Configuration;
 
       Top : Iir;
-      Primary_Id : Name_Id;
-      Secondary_Id : Name_Id;
 
       File : Iir_Design_File;
       Unit : Iir;
@@ -1357,13 +1472,6 @@ package body Ghdllocal is
       Files_List : Iir_List;
    begin
       Check_No_Elab_Flag (Libraries.Work_Library);
-
-      Primary_Id := Get_Identifier (Prim.all);
-      if Sec /= null then
-         Secondary_Id := Get_Identifier (Sec.all);
-      else
-         Secondary_Id := Null_Identifier;
-      end if;
 
       if True then
          --  Load the world.
@@ -1391,7 +1499,7 @@ package body Ghdllocal is
                                 Get_File_Checksum (File))
                   then
                      --  FILE has been modified.
-                     Design_File := Sem_Lib.Load_File (Fe);
+                     Design_File := Vhdl.Sem_Lib.Load_File (Fe);
                      if Design_File /= Null_Iir then
                         Libraries.Add_Design_File_Into_Library (Design_File);
                      end if;
@@ -1407,7 +1515,7 @@ package body Ghdllocal is
       Flag_Load_All_Design_Units := True;
       Flag_Build_File_Dependence := True;
 
-      Top := Configure (Primary_Id, Secondary_Id);
+      Top := Configure (Prim, Sec);
       if Top = Null_Iir then
          --  Error during configuration (primary unit not found).
          raise Option_Error;
@@ -1427,7 +1535,7 @@ package body Ghdllocal is
                Unit := Get_First_Design_Unit (File);
                while Unit /= Null_Iir loop
                   if not Get_Elab_Flag (Unit) then
-                     Add_Design_Unit (Unit, Null_Iir);
+                     Add_Design_Unit (Unit, Libraries.Command_Line_Location);
                   end if;
                   Unit := Get_Chain (Unit);
                end loop;
@@ -1527,7 +1635,7 @@ package body Ghdllocal is
                         return True;
                      end if;
                      Dep_File := Get_Design_File (Dep);
-                     if Dep /= Std_Package.Std_Standard_Unit
+                     if Dep /= Vhdl.Std_Package.Std_Standard_Unit
                        and then
                        Files_Map.Is_Gt (Get_Analysis_Time_Stamp (Dep_File),
                                         Stamp)
@@ -1553,7 +1661,7 @@ package body Ghdllocal is
    end Is_File_Outdated;
 
    --  Convert NAME to lower cases, unless it is an extended identifier.
-   function Convert_Name (Name : String_Access) return String_Access
+   function Convert_Name (Name : String) return Name_Id
    is
       function Is_Bad_Unit_Name return Boolean is
       begin
@@ -1608,47 +1716,207 @@ package body Ghdllocal is
          return False;
       end Is_A_File_Name;
 
-      Res : String_Access;
+      Err : Boolean;
    begin
       --  Try to identifier bad names (such as file names), so that
       --  friendly message can be displayed.
       if Is_Bad_Unit_Name then
-         Errorout.Error_Msg_Option_NR ("bad unit name '" & Name.all & "'");
+         Errorout.Error_Msg_Option ("bad unit name '" & Name & "'");
          if Is_A_File_Name then
-            Errorout.Error_Msg_Option_NR
+            Errorout.Error_Msg_Option
               ("(a unit name is required instead of a filename)");
          end if;
-         raise Option_Error;
+         return Null_Identifier;
       end if;
-      Res := new String'(Name.all);
-      Scanner.Convert_Identifier (Res.all);
-      return Res;
+      declare
+         Res : String := Name;
+      begin
+         Vhdl.Scanner.Convert_Identifier (Res, Err);
+         if Err then
+            return Null_Identifier;
+         end if;
+         return Name_Table.Get_Identifier (Res);
+      end;
    end Convert_Name;
 
-   procedure Extract_Elab_Unit
-     (Cmd_Name : String; Args : Argument_List; Next_Arg : out Natural)
-   is
+   procedure Extract_Elab_Unit (Cmd_Name : String;
+                                Args : Argument_List;
+                                Next_Arg : out Natural;
+                                Prim_Id : out Name_Id;
+                                Sec_Id : out Name_Id) is
    begin
       if Args'Length = 0 then
-         Error ("command '" & Cmd_Name & "' required an unit name");
+         Error ("command '" & Cmd_Name & "' requires an unit name");
          raise Option_Error;
       end if;
 
-      Prim_Name := Convert_Name (Args (Args'First));
+      Prim_Id := Convert_Name (Args (Args'First).all);
+      if Prim_Id = Null_Identifier then
+         raise Option_Error;
+      end if;
       Next_Arg := Args'First + 1;
-      Sec_Name := null;
+      Sec_Id := Null_Identifier;
 
       if Args'Length >= 2 then
          declare
             Sec : constant String_Access := Args (Next_Arg);
          begin
-            if Sec (Sec'First) /= '-' then
-               Sec_Name := Convert_Name (Sec);
+            if Sec (Sec'First) /= '-'
+              and then Sec (Sec'First) /= '+'
+            then
+               Sec_Id := Convert_Name (Sec.all);
                Next_Arg := Args'First + 2;
+               if Sec_Id = Null_Identifier then
+                  raise Option_Error;
+               end if;
             end if;
          end;
       end if;
    end Extract_Elab_Unit;
+
+   procedure Expect_Filenames (Args : Argument_List)
+   is
+      use Errorout;
+   begin
+      for I in Args'Range loop
+         if Args (I)(Args (I)'First) = '-' then
+            Warning_Msg_Option
+              (Warnid_Unexpected_Option,
+               "no option expected after files, use ./" & Args (I).all);
+            exit;
+         end if;
+      end loop;
+   end Expect_Filenames;
+
+   --  Command Elab_Order.
+   type Command_Elab_Order is new Command_Lib with null record;
+   function Decode_Command (Cmd : Command_Elab_Order; Name : String)
+                           return Boolean;
+   function Get_Short_Help (Cmd : Command_Elab_Order) return String;
+   procedure Perform_Action (Cmd : in out Command_Elab_Order;
+                             Args : Argument_List);
+
+   function Decode_Command (Cmd : Command_Elab_Order; Name : String)
+                           return Boolean
+   is
+      pragma Unreferenced (Cmd);
+   begin
+      return Name = "elab-order"
+        or else Name = "--elab-order";
+   end Decode_Command;
+
+   function Get_Short_Help (Cmd : Command_Elab_Order) return String
+   is
+      pragma Unreferenced (Cmd);
+   begin
+      return "elab-order [OPTS] UNIT [ARCH]"
+        & ASCII.LF & "  Display ordered source files"
+        & ASCII.LF & "  alias: --elab-order";
+   end Get_Short_Help;
+
+   function Is_Makeable_File (File : Iir_Design_File) return Boolean is
+   begin
+      if File = Vhdl.Std_Package.Std_Standard_File then
+         return False;
+      end if;
+      return True;
+   end Is_Makeable_File;
+
+   procedure Perform_Action (Cmd : in out Command_Elab_Order;
+                             Args : Argument_List)
+   is
+      pragma Unreferenced (Cmd);
+      use Name_Table;
+
+      Prim_Id : Name_Id;
+      Sec_Id : Name_Id;
+      Files_List : Iir_List;
+      File : Iir_Design_File;
+      Files_It : List_Iterator;
+
+      Dir_Id : Name_Id;
+
+      Next_Arg : Natural;
+   begin
+      Extract_Elab_Unit ("--elab-order", Args, Next_Arg, Prim_Id, Sec_Id);
+      if not Setup_Libraries (True) then
+         return;
+      end if;
+      Files_List := Build_Dependence (Prim_Id, Sec_Id);
+
+      Files_It := List_Iterate (Files_List);
+      while Is_Valid (Files_It) loop
+         File := Get_Element (Files_It);
+         Dir_Id := Get_Design_File_Directory (File);
+         if not Is_Makeable_File (File)
+           or else Dir_Id /= Files_Map.Get_Home_Directory
+         then
+            --  Builtin file.
+            null;
+         else
+            --  Lib := Get_Library (File);
+            Put (Image (Get_Design_File_Filename (File)));
+            New_Line;
+         end if;
+         Next (Files_It);
+      end loop;
+   end Perform_Action;
+
+   --  Used by --gen-makefile
+   procedure Gen_Makefile_Disp_Header
+   is
+      use Ada.Command_Line;
+   begin
+      Put_Line ("# Makefile automatically generated by ghdl");
+      Put ("# Version: GHDL ");
+      Put (Version.Ghdl_Ver);
+      Put (' ');
+      Put (Version.Ghdl_Release);
+      Put (" - ");
+      if Version_String /= null then
+         Put (Version_String.all);
+      end if;
+      New_Line;
+      Put_Line ("# Command used to generate this makefile:");
+      Put ("# ");
+      Put (Command_Name);
+      for I in 1 .. Argument_Count loop
+         Put (' ');
+         Put (Argument (I));
+      end loop;
+      New_Line;
+   end Gen_Makefile_Disp_Header;
+
+   procedure Gen_Makefile_Disp_Variables
+   is
+      use Ada.Command_Line;
+   begin
+      Put ("GHDL=");
+      Put_Line (Command_Name);
+
+      --  Extract options for command line.
+      Put ("GHDLFLAGS=");
+      for I in 2 .. Argument_Count loop
+         declare
+            Arg : constant String := Argument (I);
+         begin
+            if Arg (1) = '-' then
+               if (Arg'Length > 10 and then Arg (1 .. 10) = "--workdir=")
+                 or else (Arg'Length > 7 and then Arg (1 .. 7) = "--ieee=")
+                 or else (Arg'Length > 6 and then Arg (1 .. 6) = "--std=")
+                 or else (Arg'Length > 7 and then Arg (1 .. 7) = "--work=")
+                 or else (Arg'Length > 2 and then Arg (1 .. 2) = "-P")
+                 or else (Arg'Length > 2 and then Arg (1 .. 2) = "-f")
+                 or else (Arg'Length > 6 and then Arg (1 .. 6) = "--std=")
+               then
+                  Put (" ");
+                  Put (Arg);
+               end if;
+            end if;
+         end;
+      end loop;
+      New_Line;
+   end Gen_Makefile_Disp_Variables;
 
    procedure Register_Commands is
    begin
@@ -1660,6 +1928,7 @@ package body Ghdllocal is
       Register_Command (new Command_Remove);
       Register_Command (new Command_Copy);
       Register_Command (new Command_Disp_Standard);
+      Register_Command (new Command_Elab_Order);
       Register_Command (new Command_Find_Top);
       Register_Command (new Command_Bug_Box);
    end Register_Commands;

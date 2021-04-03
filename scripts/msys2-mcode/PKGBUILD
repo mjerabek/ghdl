@@ -1,0 +1,31 @@
+_realname=ghdl
+pkgbase=mingw-w64-${_realname}
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgver=ci
+pkgrel=1
+pkgdesc="GHDL: the open-source analyzer, compiler, simulator and (experimental) synthesizer for VHDL (mcode backend) (mingw-w64)"
+arch=('any')
+provides=("${MINGW_PACKAGE_PREFIX}-${_realname}")
+pkgname=("${MINGW_PACKAGE_PREFIX}-${_realname}-mcode")
+depends=(
+  "${MINGW_PACKAGE_PREFIX}-gcc-ada"
+  'zlib-devel'
+)
+makedepends=("${MINGW_PACKAGE_PREFIX}-gcc")
+
+build() {
+  mkdir "${srcdir}/builddir"
+  cd "${srcdir}/builddir"
+  ../../../../configure \
+    --prefix=${MINGW_PREFIX} \
+    LDFLAGS=-static \
+    --enable-libghdl \
+    --enable-synth
+  make GNATMAKE="gnatmake -j$(nproc)"
+}
+
+package() {
+  cd "${srcdir}/builddir"
+  mkdir -p "${pkgdir}${MINGW_PREFIX}/lib"
+  make DESTDIR="${pkgdir}" install
+}

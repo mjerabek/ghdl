@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) -  RTI address handling.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -283,6 +281,26 @@ package body Grt.Rtis_Addr is
       return Layout + Ghdl_Index_Type'(Ghdl_Indexes_Type'Size / 8);
    end Array_Layout_To_Bounds;
 
+   function Array_Layout_To_Element
+     (Layout : Address; El_Rti : Ghdl_Rti_Access) return Address is
+   begin
+      case El_Rti.Kind is
+         when Ghdl_Rtik_Type_Array
+           | Ghdl_Rtik_Subtype_Array
+           | Ghdl_Rtik_Subtype_Unbounded_Array =>
+            --  Trim size to pass the bounds
+            return Array_Layout_To_Bounds (Layout);
+         when Ghdl_Rtik_Type_Unbounded_Record
+           | Ghdl_Rtik_Subtype_Unbounded_Record =>
+            --  Keep full layout.
+            return Layout;
+         when Ghdl_Rtik_Type_Record =>
+            return Null_Address;
+         when others =>
+            return Null_Address;
+      end case;
+   end Array_Layout_To_Element;
+
    procedure Bound_To_Range (Bounds_Addr : Address;
                              Def : Ghdl_Rtin_Type_Array_Acc;
                              Res : out Ghdl_Range_Array)
@@ -303,20 +321,37 @@ package body Grt.Rtis_Addr is
       end loop;
    end Bound_To_Range;
 
-   function Get_Base_Type (Atype : Ghdl_Rti_Access) return Ghdl_Rti_Access is
+   function Get_Base_Type (Atype : Ghdl_Rti_Access) return Ghdl_Rti_Access
+   is
+      Res : Ghdl_Rti_Access;
    begin
-      case Atype.Kind is
-         when Ghdl_Rtik_Subtype_Scalar =>
-            return To_Ghdl_Rtin_Subtype_Scalar_Acc (Atype).Basetype;
-         when Ghdl_Rtik_Subtype_Array =>
-            return To_Ghdl_Rtin_Subtype_Composite_Acc (Atype).Basetype;
-         when Ghdl_Rtik_Type_E8
-           | Ghdl_Rtik_Type_E32
-           | Ghdl_Rtik_Type_B1 =>
-            return Atype;
-         when others =>
-            Internal_Error ("rtis_addr.get_base_type");
-      end case;
+      Res := Atype;
+      loop
+         case Res.Kind is
+            when Ghdl_Rtik_Type_E8
+               | Ghdl_Rtik_Type_E32
+               | Ghdl_Rtik_Type_B1
+               | Ghdl_Rtik_Type_I32
+               | Ghdl_Rtik_Type_I64
+               | Ghdl_Rtik_Type_P32
+               | Ghdl_Rtik_Type_P64
+               | Ghdl_Rtik_Type_F64 =>
+               return Res;
+            when Ghdl_Rtik_Subtype_Scalar =>
+               Res := To_Ghdl_Rtin_Subtype_Scalar_Acc (Res).Basetype;
+            when Ghdl_Rtik_Type_Array
+               | Ghdl_Rtik_Type_Record
+               | Ghdl_Rtik_Type_Unbounded_Record =>
+               return Res;
+            when Ghdl_Rtik_Subtype_Array
+               | Ghdl_Rtik_Subtype_Unbounded_Array
+               | Ghdl_Rtik_Subtype_Record
+               | Ghdl_Rtik_Subtype_Unbounded_Record =>
+               Res := To_Ghdl_Rtin_Subtype_Composite_Acc (Res).Basetype;
+            when others =>
+               Internal_Error ("rtis_addr.get_base_type");
+         end case;
+      end loop;
    end Get_Base_Type;
 
    function Rti_Complex_Type (Atype : Ghdl_Rti_Access) return Boolean is

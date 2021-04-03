@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) - Display subprograms for signals.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -34,6 +32,7 @@ with Grt.Astdio.Vhdl; use Grt.Astdio.Vhdl;
 with Grt.Errors; use Grt.Errors;
 pragma Elaborate_All (Grt.Rtis_Utils);
 with Grt.Vstrings; use Grt.Vstrings;
+with Grt.Vstrings_IO; use Grt.Vstrings_IO;
 with Grt.Options;
 with Grt.Processes;
 with Grt.Disp; use Grt.Disp;
@@ -166,30 +165,28 @@ package body Grt.Disp_Signals is
       end loop;
    end Disp_Transaction;
 
+   procedure Disp_Flag (Name : Character; Cond : Boolean)
+   is
+      C : Character;
+   begin
+      if Cond then
+         C := Name;
+      else
+         C := '-';
+      end if;
+      Put (C);
+   end Disp_Flag;
+
    procedure Disp_Single_Signal_Attributes (Sig : Ghdl_Signal_Ptr) is
    begin
       Disp_Mode (Sig.Mode);
       Put (' ');
-      if Sig.Active then
-         Put ('A');
-      else
-         Put ('-');
-      end if;
-      if Sig.Event then
-         Put ('E');
-      else
-         Put ('-');
-      end if;
-      if Sig.Has_Active then
-         Put ('a');
-      else
-         Put ('-');
-      end if;
-      if Sig.S.Effective /= null then
-         Put ('e');
-      else
-         Put ('-');
-      end if;
+      Disp_Flag ('A', Sig.Active);
+      Disp_Flag ('E', Sig.Event);
+      Disp_Flag ('a', Sig.Has_Active);
+      Disp_Flag ('e', Sig.S.Effective /= null);
+      Disp_Flag ('F', Sig.Flags.Is_Drv_Forced);
+      Disp_Flag ('f', Sig.Flags.Is_Eff_Forced);
       if Boolean'(True) then
          Put (" last_event=");
          Put_Time (stdout, Sig.Last_Event);
@@ -223,6 +220,14 @@ package body Grt.Disp_Signals is
          Disp_Value (stdout, Sig.Driving_Value, Sig_Type);
       else
          Disp_Value (Sig.Driving_Value, Sig.Mode);
+      end if;
+      if Boolean'(False) then
+         Put ("; lst=");
+         if Sig_Type /= null then
+            Disp_Value (stdout, Sig.Last_Value, Sig_Type);
+         else
+            Disp_Value (Sig.Last_Value, Sig.Mode);
+         end if;
       end if;
       if Sources then
          if Sig.Nbr_Ports > 0 then
@@ -298,8 +303,7 @@ package body Grt.Disp_Signals is
    procedure Disp_Scalar_Signal (Val_Addr : Address;
                                  Val_Name : Vstring;
                                  Val_Type : Ghdl_Rti_Access;
-                                 Parent : Rti_Object)
-   is
+                                 Parent : Rti_Object) is
    begin
       Disp_Signal_Name (stdout, Parent.Ctxt,
                         To_Ghdl_Rtin_Object_Acc (Parent.Obj));
@@ -340,7 +344,7 @@ package body Grt.Disp_Signals is
       Action := Sig.Event_List;
       while Action /= null loop
          Put (stdout, "  wakeup ");
-         Grt.Processes.Disp_Process_Name (stdout, Action.Proc);
+         Put (stdout, Grt.Processes.Get_Rti_Context (Action.Proc));
          New_Line (stdout);
          Action := Action.Next;
       end loop;
@@ -348,8 +352,8 @@ package body Grt.Disp_Signals is
       if Sig.S.Mode_Sig in Mode_Signal_User then
          for I in 1 .. Sig.S.Nbr_Drivers loop
             Put (stdout, "  driven ");
-            Grt.Processes.Disp_Process_Name
-              (stdout, Sig.S.Drivers (I - 1).Proc);
+            Put (stdout,
+                 Grt.Processes.Get_Rti_Context (Sig.S.Drivers (I - 1).Proc));
             New_Line (stdout);
          end loop;
       end if;
@@ -483,8 +487,7 @@ package body Grt.Disp_Signals is
       Grt.Stdio.fflush (stdout);
    end Disp_Signals_Table;
 
-   procedure Disp_A_Signal (Sig : Ghdl_Signal_Ptr)
-   is
+   procedure Disp_A_Signal (Sig : Ghdl_Signal_Ptr) is
    begin
       Put_Signal_Name (stdout, Sig);
       Disp_Simple_Signal (Sig, null, True);
@@ -517,10 +520,8 @@ package body Grt.Disp_Signals is
       procedure Foreach_Scalar is new Grt.Rtis_Utils.Foreach_Scalar
         (Param_Type => Boolean, Process => Process_Scalar);
 
-      function Process_Block (Ctxt : Rti_Context;
-                              Obj : Ghdl_Rti_Access)
-                             return Traverse_Result
-      is
+      function Process_Block (Ctxt : Rti_Context; Obj : Ghdl_Rti_Access)
+                             return Traverse_Result is
       begin
          case Obj.Kind is
             when Ghdl_Rtik_Signal

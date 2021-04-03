@@ -1,32 +1,32 @@
 --  GHDL driver - xml commands
 --  Copyright (C) 2016 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
-with Ada.Text_IO; use Ada.Text_IO;
+--  along with this program.  If not, see <gnu.org/licenses>.
+
 with GNAT.OS_Lib; use GNAT.OS_Lib;
+with Simple_IO; use Simple_IO;
+
 with Types; use Types;
 with Name_Table; use Name_Table;
-with Nodes_Meta; use Nodes_Meta;
+with Vhdl.Nodes_Meta; use Vhdl.Nodes_Meta;
 with Files_Map;
-with Disp_Tree; use Disp_Tree;
+with Vhdl.Disp_Tree; use Vhdl.Disp_Tree;
 with Ghdlprint; use Ghdlprint;
 with Libraries;
 with Errorout; use Errorout;
-with Iirs; use Iirs;
-with Sem_Lib; use Sem_Lib;
+with Vhdl.Nodes; use Vhdl.Nodes;
+with Vhdl.Sem_Lib; use Vhdl.Sem_Lib;
 with Ghdlmain; use Ghdlmain;
 with Ghdllocal; use Ghdllocal;
 
@@ -360,15 +360,20 @@ package body Ghdlxml is
                     (F, Image_Iir_Constraint (Get_Iir_Constraint (N, F)));
                when Type_Iir_Mode =>
                   Put_Field (F, Image_Iir_Mode (Get_Iir_Mode (N, F)));
+               when Type_Iir_Force_Mode =>
+                  Put_Field (F, Image_Iir_Force_Mode
+                               (Get_Iir_Force_Mode (N, F)));
                when Type_Iir_Index32 =>
                   Put_Field (F, Iir_Index32'Image (Get_Iir_Index32 (N, F)));
-               when Type_Iir_Int64 =>
-                  Put_Field (F, Iir_Int64'Image (Get_Iir_Int64 (N, F)));
+               when Type_Int64 =>
+                  Put_Field (F, Int64'Image (Get_Int64 (N, F)));
                when Type_Boolean =>
                   Put_Field (F, Image_Boolean (Get_Boolean (N, F)));
                when Type_Iir_Staticness =>
                   Put_Field (F, Image_Iir_Staticness
                                (Get_Iir_Staticness (N, F)));
+               when Type_Scalar_Size =>
+                  Put_Field (F, Image_Scalar_Size (Get_Scalar_Size (N, F)));
                when Type_Date_State_Type =>
                   Put_Field (F, Image_Date_State_Type
                                (Get_Date_State_Type (N, F)));
@@ -390,16 +395,16 @@ package body Ghdlxml is
                when Type_Iir_Predefined_Functions =>
                   Put_Field (F, Image_Iir_Predefined_Functions
                                (Get_Iir_Predefined_Functions (N, F)));
-               when Type_Iir_Direction =>
-                  Put_Field (F, Image_Iir_Direction
-                               (Get_Iir_Direction (N, F)));
+               when Type_Direction_Type =>
+                  Put_Field (F, Image_Direction_Type
+                               (Get_Direction_Type (N, F)));
                when Type_Iir_Int32 =>
                   Put_Field
                     (F, Strip (Iir_Int32'Image (Get_Iir_Int32 (N, F))));
                when Type_Int32 =>
                   Put_Field (F, Strip (Int32'Image (Get_Int32 (N, F))));
-               when Type_Iir_Fp64 =>
-                  Put_Field (F, Iir_Fp64'Image (Get_Iir_Fp64 (N, F)));
+               when Type_Fp64 =>
+                  Put_Field (F, Fp64'Image (Get_Fp64 (N, F)));
                when Type_Time_Stamp_Id =>
                   Put_Field (F, Image_Time_Stamp_Id
                                (Get_Time_Stamp_Id (N, F)));
@@ -508,7 +513,7 @@ package body Ghdlxml is
                            return Boolean;
    function Get_Short_Help (Cmd : Command_File_To_Xml) return String;
 
-   procedure Perform_Action (Cmd : Command_File_To_Xml;
+   procedure Perform_Action (Cmd : in out Command_File_To_Xml;
                              Files_Name : Argument_List);
 
    function Decode_Command (Cmd : Command_File_To_Xml; Name : String)
@@ -516,18 +521,21 @@ package body Ghdlxml is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "--file-to-xml";
+      return Name = "file-to-xml"
+        or else Name = "--file-to-xml";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_File_To_Xml) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "--file-to-xml FILEs  Dump AST in XML";
+      return "file-to-xml FILEs"
+        & ASCII.LF & "  Dump AST in XML"
+        & ASCII.LF & "  alias: --file-to-xml";
    end Get_Short_Help;
 
    procedure Perform_Action
-     (Cmd : Command_File_To_Xml; Files_Name : Argument_List)
+     (Cmd : in out Command_File_To_Xml; Files_Name : Argument_List)
    is
       pragma Unreferenced (Cmd);
 
@@ -545,7 +553,9 @@ package body Ghdlxml is
       Files : File_Data_Array;
    begin
       --  Load work library.
-      Setup_Libraries (True);
+      if not Setup_Libraries (True) then
+         return;
+      end if;
 
       --  Parse all files.
       for I in Files'Range loop

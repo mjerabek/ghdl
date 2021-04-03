@@ -1,24 +1,25 @@
 --  Naive values for interpreted simulation
 --  Copyright (C) 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Ada.Unchecked_Deallocation;
+
 with Types; use Types;
-with Iirs; use Iirs;
+
+with Vhdl.Nodes; use Vhdl.Nodes;
+with Vhdl.Annotations; use Vhdl.Annotations;
 with Grt.Types; use Grt.Types;
 with Grt.Signals; use Grt.Signals;
 with Grt.Files;
@@ -201,100 +202,15 @@ package Simul.Environments is
          when Iir_Value_Instance =>
             Instance : Block_Instance_Acc;
          when Iir_Value_Range =>
-            Dir: Iir_Direction;
+            Dir: Direction_Type;
             Length : Iir_Index32;
             Left: Iir_Value_Literal_Acc;
             Right: Iir_Value_Literal_Acc;
       end case;
    end record;
 
-   type Object_Slot_Type is new Natural;
-
-   --  This slot is not used.
-   Invalid_Object_Slot : constant Object_Slot_Type := 0;
-
-   subtype Parameter_Slot_Type is Object_Slot_Type range 0 .. 2**15;
-
-   type Pkg_Index_Type is new Natural;
-
-   type Block_Instance_Id is new Natural;
-   No_Block_Instance_Id : constant Block_Instance_Id := 0;
-
    type Objects_Array is array (Object_Slot_Type range <>) of
      Iir_Value_Literal_Acc;
-
-   --  For Kind_Extra: a number.  Kind_Extra is not used by annotations, and
-   --  is free for another pass like preelab.
-   type Extra_Slot_Type is new Natural;
-
-   -- The annotation depends on the kind of the node.
-   type Sim_Info_Kind is
-     (Kind_Block, Kind_Process, Kind_Frame, Kind_Protected, Kind_Package,
-      Kind_Scalar_Type, Kind_File_Type,
-      Kind_Object, Kind_Signal,
-      Kind_File,
-      Kind_Terminal, Kind_Quantity,
-      Kind_PSL,
-      Kind_Extra);
-
-   type Instance_Slot_Type is new Integer;
-   Invalid_Instance_Slot : constant Instance_Slot_Type := -1;
-
-   type Sim_Info_Type (Kind : Sim_Info_Kind);
-   type Sim_Info_Acc is access all Sim_Info_Type;
-
-   -- Annotation for an iir node in order to be able to simulate it.
-   type Sim_Info_Type (Kind: Sim_Info_Kind) is record
-      --  Redundant, to be used only for debugging.
-      Ref : Iir;
-
-      case Kind is
-         when Kind_Block
-           | Kind_Frame
-           | Kind_Protected
-           | Kind_Process
-           | Kind_Package =>
-            --  Number of objects/signals.
-            Nbr_Objects : Object_Slot_Type;
-
-            case Kind is
-               when Kind_Block =>
-                  --  Slot number in the parent (for blocks).
-                  Inst_Slot : Instance_Slot_Type;
-
-                  --  Number of children (blocks, generate, instantiation).
-                  Nbr_Instances : Instance_Slot_Type;
-
-               when Kind_Package =>
-                  Pkg_Slot : Object_Slot_Type;
-                  Pkg_Parent : Sim_Info_Acc;
-
-               when others =>
-                  null;
-            end case;
-
-         when Kind_Object
-           | Kind_Signal
-           | Kind_File
-           | Kind_Terminal
-           | Kind_Quantity
-           | Kind_PSL =>
-            --  Block in which this object is declared in.
-            Obj_Scope : Sim_Info_Acc;
-
-            --  Variable index in the block.
-            Slot: Object_Slot_Type;
-
-         when Kind_Scalar_Type =>
-            Scalar_Mode : Iir_Value_Kind;
-
-         when Kind_File_Type =>
-            File_Signature : String_Acc;
-
-         when Kind_Extra =>
-            Extra_Slot : Extra_Slot_Type;
-      end case;
-   end record;
 
    type Block_Instance_Type (Max_Objs : Object_Slot_Type) is record
       --  Flag for wait statement: true if not yet executed.
@@ -423,14 +339,14 @@ package Simul.Environments is
    --  Create a range_value of life LIFE.
    function Create_Range_Value
      (Left, Right : Iir_Value_Literal_Acc;
-      Dir : Iir_Direction;
+      Dir : Direction_Type;
       Length : Iir_Index32)
      return Iir_Value_Literal_Acc;
 
    --  Create a range_value (compute the length)
    function Create_Range_Value
      (Left, Right : Iir_Value_Literal_Acc;
-      Dir : Iir_Direction)
+      Dir : Direction_Type)
       return Iir_Value_Literal_Acc;
 
    -- Return true if the value of LEFT and RIGHT are equal.

@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) - secondary stack.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -142,7 +140,8 @@ package body Grt.Stack2 is
       return Chunk.Mem (Chunk.First)'Address;
    end Allocate;
 
-   function Create return Stack2_Ptr is
+   function Create return Stack2_Ptr
+   is
       Res : Stack2_Acc;
       Chunk : Chunk_Acc;
    begin
@@ -154,9 +153,15 @@ package body Grt.Stack2 is
       return To_Addr (Res);
    end Create;
 
-   --  May be used to debug.
-   procedure Dump_Stack2 (S : Stack2_Ptr);
-   pragma Unreferenced (Dump_Stack2);
+   function Is_Empty (S : Stack2_Ptr) return Boolean
+   is
+      S2 : constant Stack2_Acc := To_Acc (S);
+   begin
+      if S2 = null then
+         return True;
+      end if;
+      return S2.Top = 1;
+   end Is_Empty;
 
    procedure Dump_Stack2 (S : Stack2_Ptr)
    is
@@ -174,6 +179,9 @@ package body Grt.Stack2 is
       Put ("Stack 2 at ");
       Put (stdout, Address (S));
       New_Line;
+      if S2 = null then
+         return;
+      end if;
       Put ("First Chunk at ");
       Put (stdout, To_Address (S2.First_Chunk));
       Put (", last chunk at ");

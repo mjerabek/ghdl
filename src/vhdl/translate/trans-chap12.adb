@@ -1,32 +1,28 @@
 --  Iir to ortho translator.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
-with System;
-with Configuration;
-with Interfaces.C_Streams;
+with Vhdl.Configuration;
 with Errorout; use Errorout;
-with Std_Package; use Std_Package;
-with Iirs_Utils; use Iirs_Utils;
-with Name_Table;
+with Vhdl.Errors; use Vhdl.Errors;
+with Vhdl.Std_Package; use Vhdl.Std_Package;
+with Vhdl.Utils; use Vhdl.Utils;
 with Libraries;
 with Flags;
-with Sem;
-with Sem_Lib; use Sem_Lib;
+with Vhdl.Sem;
+with Vhdl.Sem_Lib; use Vhdl.Sem_Lib;
 with Trans.Chap1;
 with Trans.Chap2;
 with Trans.Chap6;
@@ -61,9 +57,10 @@ package body Trans.Chap12 is
 
       --  Create the array of RTIs for packages (as a variable, initialized
       --  during elaboration).
-      Arr_Type := New_Constrained_Array_Type
+      Arr_Type := New_Array_Subtype
         (Rtis.Ghdl_Rti_Array,
-         New_Unsigned_Literal (Ghdl_Index_Type, Unsigned_64 (Elab_Nbr_Pkgs)));
+         Rtis.Ghdl_Rti_Access,
+         Helpers.New_Index_Lit (Unsigned_64 (Elab_Nbr_Pkgs)));
       New_Var_Decl (Pkgs_Arr, Get_Identifier ("__ghdl_top_RTIARRAY"),
                     O_Storage_Private, Arr_Type);
 
@@ -361,7 +358,7 @@ package body Trans.Chap12 is
 
       Decl : Iir;
    begin
-      Load_Design_Unit (Unit, Null_Iir);
+      Load_Design_Unit (Unit, Libraries.Command_Line_Location);
       Pkg := Get_Library_Unit (Unit);
       Reset_Identifier_Prefix;
       Lib := Get_Library (Get_Design_File (Get_Design_Unit (Pkg)));
@@ -422,7 +419,7 @@ package body Trans.Chap12 is
    --  Write to file FILELIST all the files that are needed to link the design.
    procedure Gen_Stubs
    is
-      use Configuration;
+      use Vhdl.Configuration;
 
       --  Add all dependences of UNIT.
       --  UNIT is not used, but added during link.
@@ -435,7 +432,7 @@ package body Trans.Chap12 is
          Lib_Unit : Iir;
       begin
          --  Load the unit in memory to compute the dependence list.
-         Load_Design_Unit (Unit, Null_Iir);
+         Load_Design_Unit (Unit, Libraries.Command_Line_Location);
          Update_Node_Infos;
 
          Set_Elab_Flag (Unit, True);
@@ -528,69 +525,9 @@ package body Trans.Chap12 is
       end loop;
    end Gen_Stubs;
 
-   --  Write to file FILELIST all the files that are needed to link the design.
-   procedure Write_File_List (Filelist : String)
+   procedure Elaborate (Config : Iir_Design_Unit; Whole : Boolean)
    is
-      use Interfaces.C_Streams;
-      use System;
-      use Configuration;
-      use Name_Table;
-
-      Nul : constant Character := Character'Val (0);
-      Fname : String := Filelist & Nul;
-      Mode : constant String := "wt" & Nul;
-      F : FILEs;
-      R : int;
-      S : size_t;
-      pragma Unreferenced (R, S); -- FIXME
-      Id : Name_Id;
-      Lib : Iir_Library_Declaration;
-      File : Iir_Design_File;
-      Unit : Iir_Design_Unit;
-   begin
-      F := fopen (Fname'Address, Mode'Address);
-      if F = NULL_Stream then
-         Error_Msg_Elab ("cannot open " & Filelist);
-         return;
-      end if;
-
-      --  Clear elab flags on design files.
-      for I in Design_Units.First .. Design_Units.Last loop
-         Unit := Design_Units.Table (I);
-         File := Get_Design_File (Unit);
-         Set_Elab_Flag (File, False);
-      end loop;
-
-      for J in Design_Units.First .. Design_Units.Last loop
-         Unit := Design_Units.Table (J);
-         File := Get_Design_File (Unit);
-         if not Get_Elab_Flag (File) then
-            Set_Elab_Flag (File, True);
-
-            --  Write '>LIBRARY_DIRECTORY'.
-            Lib := Get_Library (File);
-            R := fputc (Character'Pos ('>'), F);
-            Id := Get_Library_Directory (Lib);
-            S := fwrite (Get_Address (Id),
-                         size_t (Get_Name_Length (Id)), 1, F);
-            R := fputc (10, F);
-
-            --  Write 'FILENAME'.
-            Id := Get_Design_File_Filename (File);
-            S := fwrite (Get_Address (Id),
-                         size_t (Get_Name_Length (Id)), 1, F);
-            R := fputc (10, F);
-         end if;
-      end loop;
-
-      R := fclose (F);
-   end Write_File_List;
-
-   procedure Elaborate (Config : Iir_Design_Unit;
-                        Filelist : String;
-                        Whole : Boolean)
-   is
-      use Configuration;
+      use Vhdl.Configuration;
 
       Unit : Iir_Design_Unit;
       Lib_Unit : Iir;
@@ -606,14 +543,14 @@ package body Trans.Chap12 is
         (Get_Block_Specification (Get_Block_Configuration (Config_Lib)));
 
       --  Be sure the entity can be at the top of a design.
-      Check_Entity_Declaration_Top (Entity);
+      Check_Entity_Declaration_Top (Entity, True);
 
       --  If all design units are loaded, late semantic checks can be
       --  performed.
       if Flag_Load_All_Design_Units then
          for I in Design_Units.First .. Design_Units.Last loop
             Unit := Design_Units.Table (I);
-            Sem.Sem_Analysis_Checks_List (Unit, False);
+            Vhdl.Sem.Sem_Analysis_Checks_List (Unit, False);
             --  There cannot be remaining checks to do.
             pragma Assert
               (Get_Analysis_Checks_List (Unit) = Null_Iir_List);
@@ -626,12 +563,12 @@ package body Trans.Chap12 is
       end if;
 
       if Flags.Verbose then
-         Report_Msg (Msgid_Note, Elaboration, No_Location,
+         Report_Msg (Msgid_Note, Elaboration, No_Source_Coord,
                      "List of units in the hierarchy design:");
          for I in Design_Units.First .. Design_Units.Last loop
             Unit := Design_Units.Table (I);
             Lib_Unit := Get_Library_Unit (Unit);
-            Report_Msg (Msgid_Note, Elaboration, No_Location,
+            Report_Msg (Msgid_Note, Elaboration, No_Source_Coord,
                         " %n", (1 => +Lib_Unit));
          end loop;
       end if;
@@ -749,19 +686,14 @@ package body Trans.Chap12 is
          Gen_Stubs;
       end if;
 
-      --  Write the file containing the list of object files.
-      if Filelist /= "" then
-         Write_File_List (Filelist);
-      end if;
-
       --  Disp list of files needed.
       if Flags.Verbose then
-         Report_Msg (Msgid_Note, Elaboration, No_Location,
+         Report_Msg (Msgid_Note, Elaboration, No_Source_Coord,
                      "List of units not used:");
          for I in Last_Design_Unit + 1 .. Design_Units.Last loop
             Unit := Design_Units.Table (I);
             Lib_Unit := Get_Library_Unit (Unit);
-            Report_Msg (Msgid_Note, Elaboration, No_Location,
+            Report_Msg (Msgid_Note, Elaboration, No_Source_Coord,
                         " %n", (1 => +Lib_Unit));
          end loop;
       end if;

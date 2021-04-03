@@ -1,34 +1,37 @@
 --  VHDL libraries handling.
 --  Copyright (C) 2002, 2003, 2004, 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
-with Interfaces.C_Streams;
+--  along with this program.  If not, see <gnu.org/licenses>.
 with System;
+with Interfaces.C_Streams;
 with GNAT.OS_Lib;
+
 with Logging; use Logging;
 with Tables;
 with Errorout; use Errorout;
-with Scanner;
-with Iirs_Utils; use Iirs_Utils;
+with Options; use Options;
 with Name_Table; use Name_Table;
 with Str_Table;
-with Tokens;
 with Files_Map;
 with Flags;
-with Std_Package;
+with Std_Names;
+
+with Vhdl.Tokens;
+with Vhdl.Std_Package;
+with Vhdl.Errors; use Vhdl.Errors;
+with Vhdl.Scanner;
+with Vhdl.Utils; use Vhdl.Utils;
 
 package body Libraries is
    --  Chain of known libraries.  This is also the top node of all iir node.
@@ -48,20 +51,46 @@ package body Libraries is
    --  Report an error message.
    procedure Error_Lib_Msg (Msg : String) is
    begin
-      Report_Msg (Msgid_Error, Library, No_Location, Msg);
+      Report_Msg (Msgid_Error, Library, No_Source_Coord, Msg);
    end Error_Lib_Msg;
+
+   procedure Create_Virtual_Locations
+   is
+      use Files_Map;
+      Library_Source_File : Source_File_Entry;
+      Command_Source_File : Source_File_Entry;
+   begin
+      Library_Source_File := Create_Virtual_Source_File
+        (Get_Identifier ("*libraries*"));
+      Command_Source_File := Create_Virtual_Source_File
+        (Get_Identifier ("*command line*"));
+      Command_Line_Location := File_To_Location (Command_Source_File);
+      Library_Location := File_To_Location (Library_Source_File);
+   end Create_Virtual_Locations;
 
    --  Initialize paths table.
    --  Set the local path.
-   procedure Init_Paths is
+   procedure Initialize is
    begin
       --  Always look in current directory first.
+      Paths.Init;
       Name_Nil := Get_Identifier ("");
       Paths.Append (Name_Nil);
 
       Local_Directory := Name_Nil;
       Work_Directory := Name_Nil;
-   end Init_Paths;
+
+      Libraries_Chain := Null_Iir;
+      Std_Library := Null_Iir;
+      Work_Library_Name := Std_Names.Name_Work;
+
+      Create_Virtual_Locations;
+   end Initialize;
+
+   procedure Finalize is
+   begin
+      Paths.Free;
+   end Finalize;
 
    function Path_To_Id (Path : String) return Name_Id is
    begin
@@ -106,7 +135,7 @@ package body Libraries is
       case Vhdl_Std is
          when Vhdl_87 =>
             return Image_Identifier (Library) & "-obj87.cf";
-         when Vhdl_93c | Vhdl_93 | Vhdl_00 | Vhdl_02 =>
+         when Vhdl_93 | Vhdl_00 | Vhdl_02 =>
             return Image_Identifier (Library) & "-obj93.cf";
          when Vhdl_08 =>
             return Image_Identifier (Library) & "-obj08.cf";
@@ -148,7 +177,7 @@ package body Libraries is
             case Vhdl_Std is
                when Vhdl_87 =>
                   Path (L + 2 .. L + 4) := "v87";
-               when Vhdl_93c | Vhdl_93 | Vhdl_00 | Vhdl_02 =>
+               when Vhdl_93 | Vhdl_00 | Vhdl_02 =>
                   Path (L + 2 .. L + 4) := "v93";
                when Vhdl_08 =>
                   Path (L + 2 .. L + 4) := "v08";
@@ -327,8 +356,8 @@ package body Libraries is
    -- Return TRUE if the library was found.
    function Load_Library (Library: Iir_Library_Declaration) return Boolean
    is
-      use Scanner;
-      use Tokens;
+      use Vhdl.Scanner;
+      use Vhdl.Tokens;
 
       File : Source_File_Entry;
 
@@ -418,7 +447,7 @@ package body Libraries is
          return False;
       end if;
 
-      Scanner.Set_File (File);
+      Vhdl.Scanner.Set_File (File);
 
       --  Parse header.
       Scan;
@@ -505,21 +534,17 @@ package body Libraries is
                   else
                      Library_Unit := Create_Iir (Iir_Kind_Package_Declaration);
                   end if;
-               when Tok_With =>
-                  if Library_Unit = Null_Iir
-                    or else
-                    Get_Kind (Library_Unit) /= Iir_Kind_Architecture_Body
-                  then
-                     Log_Line ("load_library: invalid use of 'with'");
-                     raise Internal_Error;
-                  end if;
-                  Scan_Expect (Tok_Configuration);
-                  Scan_Expect (Tok_Colon);
-                  Scan;
-                  goto Next_Line;
                when Tok_Context =>
-                  Library_Unit :=
-                    Create_Iir (Iir_Kind_Context_Declaration);
+                  Library_Unit := Create_Iir (Iir_Kind_Context_Declaration);
+                  Scan;
+               when Tok_Vunit =>
+                  Library_Unit := Create_Iir (Iir_Kind_Vunit_Declaration);
+                  Scan;
+               when Tok_Vmode =>
+                  Library_Unit := Create_Iir (Iir_Kind_Vmode_Declaration);
+                  Scan;
+               when Tok_Vprop =>
+                  Library_Unit := Create_Iir (Iir_Kind_Vprop_Declaration);
                   Scan;
                when others =>
                   Log_Line
@@ -535,9 +560,16 @@ package body Libraries is
             Set_Identifier (Design_Unit, Current_Identifier);
 
             if Get_Kind (Library_Unit) = Iir_Kind_Architecture_Body then
-               Scan_Expect (Tok_Of);
-               Scan_Expect (Tok_Identifier);
-               Set_Entity_Name (Library_Unit, Current_Text);
+               declare
+                  Ent : Iir;
+               begin
+                  Scan_Expect (Tok_Of);
+                  Scan_Expect (Tok_Identifier);
+                  Ent := Create_Iir (Iir_Kind_Simple_Name);
+                  Set_Identifier (Ent, Current_Identifier);
+                  Set_Location (Ent, Get_Token_Location);
+                  Set_Entity_Name (Library_Unit, Ent);
+               end;
             end if;
 
             -- Scan position.
@@ -597,11 +629,10 @@ package body Libraries is
             Last_Design_Unit := Design_Unit;
             Set_Last_Design_Unit (Design_File, Design_Unit);
          end if;
-         << Next_Line >> null;
       end loop;
       Set_Date (Library, Max_Date);
 
-      Scanner.Close_File;
+      Vhdl.Scanner.Close_File;
 
       --  Don't need the library file anymore.
       Files_Map.Unload_Last_Source_File (File);
@@ -609,35 +640,18 @@ package body Libraries is
       return True;
    end Load_Library;
 
-   procedure Create_Virtual_Locations
-   is
-      use Files_Map;
-      Library_Source_File : Source_File_Entry;
-      Command_Source_File : Source_File_Entry;
-   begin
-      Library_Source_File := Create_Virtual_Source_File
-        (Get_Identifier ("*libraries*"));
-      Command_Source_File := Create_Virtual_Source_File
-        (Get_Identifier ("*command line*"));
-      Command_Line_Location := File_To_Location (Command_Source_File);
-      Library_Location := File_To_Location (Library_Source_File);
-   end Create_Virtual_Locations;
-
    -- Note: the scanner shouldn't be in use, since this procedure uses it.
-   procedure Load_Std_Library (Build_Standard : Boolean := True)
+   function Load_Std_Library (Build_Standard : Boolean := True) return Boolean
    is
-      use Std_Package;
+      use Vhdl.Std_Package;
       Dir : Name_Id;
    begin
-      if Libraries_Chain /= Null_Iir then
-         --  This procedure must not be called twice.
-         raise Internal_Error;
-      end if;
+      --  This procedure must not be called twice.
+      pragma Assert (Libraries_Chain = Null_Iir);
 
       Flags.Create_Flag_String;
-      Create_Virtual_Locations;
 
-      Std_Package.Create_First_Nodes;
+      Vhdl.Std_Package.Create_First_Nodes;
 
       --  Create the library.
       Std_Library := Create_Iir (Iir_Kind_Library_Declaration);
@@ -663,6 +677,7 @@ package body Libraries is
         and then not Flags.Bootstrap
       then
          Error_Msg_Option ("cannot find ""std"" library");
+         return False;
       end if;
 
       if Build_Standard then
@@ -676,6 +691,7 @@ package body Libraries is
       end if;
 
       Set_Visible_Flag (Std_Library, True);
+      return True;
    end Load_Std_Library;
 
    procedure Load_Work_Library (Empty : Boolean := False)
@@ -685,10 +701,18 @@ package body Libraries is
       if Work_Library_Name = Name_Std then
          if not Flags.Bootstrap then
             Error_Msg_Option ("the WORK library cannot be STD");
-            return;
+            raise Option_Error;
          end if;
          Work_Library := Std_Library;
       else
+         --  If the library is already known, just switch to it.  This is used
+         --  for --work= option in the middle of files.
+         Work_Library := Vhdl.Utils.Find_Name_In_Chain
+           (Libraries_Chain, Work_Library_Name);
+         if Work_Library /= Null_Iir then
+            return;
+         end if;
+
          Work_Library := Create_Iir (Iir_Kind_Library_Declaration);
          Set_Location (Work_Library, Library_Location);
          Set_Library_Directory (Work_Library, Work_Directory);
@@ -699,6 +723,8 @@ package body Libraries is
             if Load_Library (Work_Library) = False then
                null;
             end if;
+         else
+            Set_Date (Work_Library, Date_Valid'First);
          end if;
 
          --  Add it to the list of libraries.
@@ -708,11 +734,8 @@ package body Libraries is
       Set_Visible_Flag (Work_Library, True);
    end Load_Work_Library;
 
-   -- Get or create a library from an identifier.
-   function Get_Library (Ident: Name_Id; Loc : Location_Type)
-                        return Iir_Library_Declaration
-   is
-      Library: Iir_Library_Declaration;
+   function Get_Library_No_Create (Ident : Name_Id)
+                                  return Iir_Library_Declaration is
    begin
       --  The library work is a little bit special.
       if Ident = Std_Names.Name_Work or else Ident = Work_Library_Name then
@@ -722,16 +745,23 @@ package body Libraries is
       end if;
 
       --  Check if the library has already been loaded.
-      Library := Iirs_Utils.Find_Name_In_Chain (Libraries_Chain, Ident);
+      return Vhdl.Utils.Find_Name_In_Chain (Libraries_Chain, Ident);
+   end Get_Library_No_Create;
+
+   -- Get or create a library from an identifier.
+   function Get_Library (Ident: Name_Id; Loc : Location_Type)
+                        return Iir_Library_Declaration
+   is
+      Library: Iir_Library_Declaration;
+   begin
+      Library := Get_Library_No_Create (Ident);
       if Library /= Null_Iir then
          return Library;
       end if;
 
       --  This is a new library.
-      if Ident = Std_Names.Name_Std then
-         --  Load_std_library must have been called before.
-         raise Internal_Error;
-      end if;
+      --  Load_std_library must have been called before.
+      pragma Assert (Ident /= Std_Names.Name_Std);
 
       Library := Create_Iir (Iir_Kind_Library_Declaration);
       Set_Location (Library, Library_Location);
@@ -918,7 +948,7 @@ package body Libraries is
 
                         --  Keep direct reference (for speed-up).
                         if Get_Kind (El) /= Iir_Kind_Design_Unit then
-                           Iirs_Utils.Free_Recursive (El);
+                           Vhdl.Utils.Free_Recursive (El);
                            Set_Element (It, Unit);
                         end if;
 
@@ -1063,98 +1093,103 @@ package body Libraries is
 
       --  Try to find a design unit with the same name in the work library.
       Id := Get_Hash_Id_For_Unit (Unit);
-      Design_Unit := Unit_Hash_Table (Id);
-      Prev_Design_Unit := Null_Iir;
-      while Design_Unit /= Null_Iir loop
-         Design_File := Get_Design_File (Design_Unit);
-         Library_Unit := Get_Library_Unit (Design_Unit);
-         if Get_Identifier (Design_Unit) = Unit_Id
-           and then Get_Library (Design_File) = Work_Library
-           and then Is_Same_Library_Unit (New_Library_Unit, Library_Unit)
-         then
-            --  LIBRARY_UNIT and UNIT designate the same design unit.
-            Mark_Unit_Obsolete (Design_Unit);
+      declare
+         Design_Unit, Prev_Design_Unit : Iir_Design_Unit;
+         Next_Design_Unit : Iir_Design_Unit;
+      begin
+         Design_Unit := Unit_Hash_Table (Id);
+         Prev_Design_Unit := Null_Iir;
+         while Design_Unit /= Null_Iir loop
+            Next_Design_Unit := Get_Hash_Chain (Design_Unit);
+            Design_File := Get_Design_File (Design_Unit);
+            Library_Unit := Get_Library_Unit (Design_Unit);
+            if Get_Identifier (Design_Unit) = Unit_Id
+              and then Get_Library (Design_File) = Work_Library
+              and then Is_Same_Library_Unit (New_Library_Unit, Library_Unit)
+            then
+               --  LIBRARY_UNIT and UNIT designate the same design unit.
+               Mark_Unit_Obsolete (Design_Unit);
 
-            --  Remove the old one from the hash table.
-            declare
-               Next_Design : Iir;
-            begin
+               --  Remove the old one from the hash table.
                --  Remove DESIGN_UNIT from the unit_hash.
-               Next_Design := Get_Hash_Chain (Design_Unit);
                if Prev_Design_Unit = Null_Iir then
-                  Unit_Hash_Table (Id) := Next_Design;
+                  Unit_Hash_Table (Id) := Next_Design_Unit;
                else
-                  Set_Hash_Chain (Prev_Design_Unit, Next_Design);
-               end if;
-            end;
-
-            --  Remove DESIGN_UNIT from the design_file.
-            --  If KEEP_OBSOLETE is True, units that are obsoleted by units
-            --  in the same design file are kept.  This allows to process
-            --  (pretty print, xrefs, ...) all units of a design file.
-            --  But still remove units that are replaced (if a file was
-            --  already in the library).
-            if not Keep_Obsolete
-              or else Get_Date_State (Design_Unit) = Date_Disk
-            then
-               Remove_Unit_From_File (Design_Unit, Design_File);
-
-               --  Put removed units in a list so that they are still
-               --  referenced.
-               Set_Chain (Design_Unit, Obsoleted_Design_Units);
-               Obsoleted_Design_Units := Design_Unit;
-            end if;
-
-            --  UNIT *must* replace library_unit if they don't belong
-            --  to the same file.
-            if Get_Design_File_Filename (Design_File) = File_Name
-              and then Get_Design_File_Directory (Design_File) = Dir_Name
-            then
-               --  In the same file.
-               if Get_Date_State (Design_Unit) = Date_Analyze then
-                  --  Warns only if we are not re-analyzing the file.
-                  if Is_Warning_Enabled (Warnid_Library) then
-                     Warning_Msg_Sem
-                       (Warnid_Library, +Unit,
-                        "redefinition of a library unit in "
-                          & "same design file:");
-                     Warning_Msg_Sem
-                       (Warnid_Library, +Unit, "%n defined at %l is now %n",
-                        (+Library_Unit, +Library_Unit, +New_Library_Unit));
-                  end if;
-               else
-                  --  Free the stub corresponding to the unit.  This is the
-                  --  common case when a unit is reanalyzed after a change.
-                  if not Keep_Obsolete then
-                     Free_Design_Unit (Design_Unit);
-                  end if;
+                  Set_Hash_Chain (Prev_Design_Unit, Next_Design_Unit);
                end if;
 
-               --  Note: the current design unit should not be freed if
-               --  in use; unfortunatly, this is not obvious to check.
-            else
-               if Is_Warning_Enabled (Warnid_Library) then
-                  if Get_Kind (Library_Unit) /= Get_Kind (New_Library_Unit)
+               --  Remove DESIGN_UNIT from the design_file.
+               --  If KEEP_OBSOLETE is True, units that are obsoleted by units
+               --  in the same design file are kept.  This allows to process
+               --  (pretty print, xrefs, ...) all units of a design file.
+               --  But still remove units that are replaced (if a file was
+               --  already in the library).
+               if not Keep_Obsolete
+                 or else Get_Date_State (Design_Unit) = Date_Disk
+               then
+                  Remove_Unit_From_File (Design_Unit, Design_File);
+
+                  --  Put removed units in a list so that they are still
+                  --  referenced.
+                  Set_Chain (Design_Unit, Obsoleted_Design_Units);
+                  Obsoleted_Design_Units := Design_Unit;
+               end if;
+
+               --  UNIT *must* replace library_unit if they don't belong
+               --  to the same file.
+               if Get_Design_File_Filename (Design_File) = File_Name
+                 and then Get_Design_File_Directory (Design_File) = Dir_Name
+               then
+                  --  In the same file.
+                  if Get_Date_State (Design_Unit) = Date_Analyze then
+                     --  Warns only if we are not re-analyzing the file.
+                     if Is_Warning_Enabled (Warnid_Library) then
+                        Warning_Msg_Sem
+                          (Warnid_Library, +Unit,
+                           "redefinition of a library unit in "
+                             & "same design file:");
+                        Warning_Msg_Sem
+                          (Warnid_Library, +Unit, "%n defined at %l is now %n",
+                           (+Library_Unit, +Library_Unit, +New_Library_Unit));
+                     end if;
+                  else
+                     --  Free the stub corresponding to the unit.  This is the
+                     --  common case when a unit is reanalyzed after a change.
+                     if not Keep_Obsolete then
+                        Free_Design_Unit (Design_Unit);
+                     end if;
+                  end if;
+
+                  --  Note: the current design unit should not be freed if
+                  --  in use; unfortunatly, this is not obvious to check.
+               else
+                  if Is_Warning_Enabled (Warnid_Library)
+                    and then Get_Kind (Library_Unit) in Iir_Kinds_Primary_Unit
                   then
+                     if Get_Kind (Library_Unit) /= Get_Kind (New_Library_Unit)
+                     then
+                        Warning_Msg_Sem
+                          (Warnid_Library, +Unit,
+                           "changing definition of a library unit:");
+                        Warning_Msg_Sem
+                          (Warnid_Library, +Unit,
+                           "%n is now %n", (+Library_Unit, +New_Library_Unit));
+                     end if;
                      Warning_Msg_Sem
                        (Warnid_Library, +Unit,
-                        "changing definition of a library unit:");
-                     Warning_Msg_Sem
-                       (Warnid_Library, +Unit,
-                        "%n is now %n", (+Library_Unit, +New_Library_Unit));
+                        "%n was also defined in file %i",
+                        (+Library_Unit,
+                         +Get_Design_File_Filename (Design_File)));
                   end if;
-                  Warning_Msg_Sem
-                    (Warnid_Library, +Unit,
-                     "library unit %i was also defined in file %i",
-                     (+Library_Unit, +Get_Design_File_Filename (Design_File)));
                end if;
+               --  Continue to search as there can be several units with the
+               --  same name (like package and package body).
             end if;
-            exit;
-         else
+
             Prev_Design_Unit := Design_Unit;
-            Design_Unit := Get_Hash_Chain (Design_Unit);
-         end if;
-      end loop;
+            Design_Unit := Next_Design_Unit;
+         end loop;
+      end;
 
       --  Try to find the design file in the library.
       --  First try the last one found.
@@ -1325,7 +1360,7 @@ package body Libraries is
       Design_File := Get_Design_File_Chain (Library);
       while Design_File /= Null_Iir loop
          --  Ignore std.standard as there is no corresponding file.
-         if Design_File = Std_Package.Std_Standard_File then
+         if Design_File = Vhdl.Std_Package.Std_Standard_File then
             goto Continue;
          end if;
          Design_Unit := Get_First_Design_Unit (Design_File);
@@ -1385,6 +1420,15 @@ package body Libraries is
                   WR (Image_Identifier (Library_Unit));
                when Iir_Kind_Context_Declaration =>
                   WR ("context ");
+                  WR (Image_Identifier (Library_Unit));
+               when Iir_Kind_Vunit_Declaration =>
+                  WR ("vunit ");
+                  WR (Image_Identifier (Library_Unit));
+               when Iir_Kind_Vprop_Declaration =>
+                  WR ("vprop ");
+                  WR (Image_Identifier (Library_Unit));
+               when Iir_Kind_Vmode_Declaration =>
+                  WR ("vmode ");
                   WR (Image_Identifier (Library_Unit));
                when others =>
                   Error_Kind ("save_library", Library_Unit);
@@ -1613,4 +1657,18 @@ package body Libraries is
    begin
       return Libraries_Chain;
    end Get_Libraries_Chain;
+
+   function Decode_Work_Option (Opt : String) return Name_Id
+   is
+      Name : String (Opt'First + 7 .. Opt'Last);
+      Err : Boolean;
+   begin
+      Name := Opt (Opt'First + 7 .. Opt'Last);
+      Vhdl.Scanner.Convert_Identifier (Name, Err);
+      if Err then
+         return Null_Identifier;
+      end if;
+      return Get_Identifier (Name);
+      -- Libraries.Work_Library_Name :=
+   end Decode_Work_Option;
 end Libraries;

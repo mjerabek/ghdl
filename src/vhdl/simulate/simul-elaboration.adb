@@ -1,33 +1,31 @@
 --  Elaboration
 --  Copyright (C) 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
-with Ada.Text_IO;
+with Simple_IO;
 with Str_Table;
 with Errorout; use Errorout;
-with Evaluation;
+with Vhdl.Errors; use Vhdl.Errors;
+with Vhdl.Evaluation;
 with Simul.Execution; use Simul.Execution;
-with Iirs_Utils; use Iirs_Utils;
+with Vhdl.Utils; use Vhdl.Utils;
 with Libraries;
 with Name_Table;
 with Simul.File_Operation;
-with Iir_Chains; use Iir_Chains;
-with Sem_Lib; use Sem_Lib;
-with Simul.Annotations; use Simul.Annotations;
+with Vhdl.Nodes_Utils; use Vhdl.Nodes_Utils;
+with Vhdl.Sem_Lib; use Vhdl.Sem_Lib;
 with Simul.Elaboration.AMS; use Simul.Elaboration.AMS;
 with Areapools; use Areapools;
 with Grt.Errors;
@@ -37,7 +35,7 @@ package body Simul.Elaboration is
 
    procedure Elaborate_Dependence (Design_Unit: Iir_Design_Unit);
 
-   procedure Elaborate_Statement_Part
+   procedure Elaborate_Concurrent_Statement_Part
      (Instance : Block_Instance_Acc; Stmt_Chain: Iir);
    procedure Elaborate_Type_Definition
      (Instance : Block_Instance_Acc; Def : Iir);
@@ -332,11 +330,10 @@ package body Simul.Elaboration is
    --  at the origin of the instantiation (it is generally the same as OBJ,
    --  except for component where STMT is the component instantation
    --  statement).
-   function Create_Block_Instance
-     (Father : Block_Instance_Acc;
-      Obj : Iir;
-      Stmt : Iir)
-      return Block_Instance_Acc
+   function Create_Block_Instance (Father : Block_Instance_Acc;
+                                   Obj : Iir;
+                                   Stmt : Iir)
+                                  return Block_Instance_Acc
    is
       Obj_Info : constant Sim_Info_Acc := Get_Info (Obj);
       Res : Block_Instance_Acc;
@@ -363,6 +360,7 @@ package body Simul.Elaboration is
          Result => null);
 
       if Father /= null then
+         --  Prepend the instance to the chain of children.
          case Obj_Info.Kind is
             when Kind_Block
               | Kind_Process =>
@@ -382,6 +380,7 @@ package body Simul.Elaboration is
       Package_Info : constant Sim_Info_Acc := Get_Info (Decl);
       Instance : Block_Instance_Acc;
       Hdr : Iir;
+      Bod : Iir;
    begin
       if Block /= Global_Instances then
          --  Packages in library unit can be elaborated in a different order.
@@ -395,7 +394,7 @@ package body Simul.Elaboration is
         Create_Instance_Value (Instance);
 
       if Trace_Elaboration then
-         Report_Msg (Msgid_Note, Errorout.Elaboration, No_Location,
+         Report_Msg (Msgid_Note, Errorout.Elaboration, No_Source_Coord,
                      "elaborating %n", (1 => +Decl));
       end if;
 
@@ -417,17 +416,18 @@ package body Simul.Elaboration is
       Elaborate_Declarative_Part (Instance, Get_Declaration_Chain (Decl));
 
       if Get_Kind (Decl) = Iir_Kind_Package_Instantiation_Declaration then
+         Bod := Get_Instance_Package_Body (Decl);
          --  Elaborate the body now.
-         if Get_Package_Body (Decl) /= Null_Iir then
+         if Bod /= Null_Iir then
             --  Macro-expanded.
             Elaborate_Declarative_Part
-              (Instance, Get_Declaration_Chain (Get_Package_Body (Decl)));
+              (Instance, Get_Declaration_Chain (Bod));
          else
             --  Shared body.
             declare
                Uninst : constant Iir := Get_Uninstantiated_Package_Decl (Decl);
-               Bod : constant Iir := Get_Package_Body (Uninst);
             begin
+               Bod := Get_Package_Body (Uninst);
                Instance.Uninst_Scope := Get_Info (Uninst);
                if Is_Valid (Bod) then
                   --  Body is optional.
@@ -446,7 +446,7 @@ package body Simul.Elaboration is
         Block.Objects (Package_Info.Pkg_Slot).Instance;
    begin
       if Trace_Elaboration then
-         Report_Msg (Msgid_Note, Errorout.Elaboration, No_Location,
+         Report_Msg (Msgid_Note, Errorout.Elaboration, No_Source_Coord,
                      "elaborating %n", (1 => +Decl));
       end if;
 
@@ -639,18 +639,18 @@ package body Simul.Elaboration is
                   Bounds := Execute_Bounds (Block, Decl);
                   Res := Bounds.Left;
                when Init_Value_Any =>
-                  case Iir_Value_Scalars
-                    (Get_Info (Get_Base_Type (Decl)).Scalar_Mode)
+                  case Kind_Scalar_Types (Get_Info (Get_Base_Type (Decl)).Kind)
                      is
-                     when Iir_Value_B1 =>
+                     when Kind_Bit_Type =>
                         Res := Create_B1_Value (False);
-                     when Iir_Value_E8 =>
+                     when Kind_E8_Type
+                       | Kind_Log_Type =>
                         Res := Create_E8_Value (0);
-                     when Iir_Value_E32 =>
+                     when Kind_E32_Type =>
                         Res := Create_E32_Value (0);
-                     when Iir_Value_I64 =>
+                     when Kind_I64_Type =>
                         Res := Create_I64_Value (0);
-                     when Iir_Value_F64 =>
+                     when Kind_F64_Type =>
                         Res := Create_F64_Value (0.0);
                   end case;
                when Init_Value_Signal =>
@@ -801,6 +801,8 @@ package body Simul.Elaboration is
                   Kind := Quantity_Through;
                when Iir_Kind_Free_Quantity_Declaration =>
                   Kind := Quantity_Free;
+               when Iir_Kinds_Source_Quantity_Declaration =>
+                  raise Internal_Error; --  TODO.
             end case;
             Res := Create_Quantity_Value
               (Create_Scalar_Quantity (Kind, Decl, Block));
@@ -900,7 +902,7 @@ package body Simul.Elaboration is
       end if;
    end Elaborate_Subtype_Indication_If_Anonymous;
 
-   --  LRM93 §12.3.1.3  Subtype Declarations
+   --  LRM93 12.3.1.3  Subtype Declarations
    --  The elaboration of a subtype indication creates a subtype.
    procedure Elaborate_Subtype_Indication
      (Instance : Block_Instance_Acc; Ind : Iir)
@@ -944,7 +946,7 @@ package body Simul.Elaboration is
       end case;
    end Elaborate_Subtype_Indication;
 
-   --  LRM93 §12.3.1.2  Type Declarations.
+   --  LRM93 12.3.1.2  Type Declarations.
    procedure Elaborate_Type_Definition
      (Instance : Block_Instance_Acc; Def : Iir)
    is
@@ -1011,7 +1013,7 @@ package body Simul.Elaboration is
       end case;
    end Elaborate_Type_Definition;
 
-   --  LRM93 §12.3.1.2  Type Declarations.
+   --  LRM93 12.3.1.2  Type Declarations.
    procedure Elaborate_Type_Declaration
      (Instance : Block_Instance_Acc; Decl : Iir_Type_Declaration)
    is
@@ -1101,7 +1103,7 @@ package body Simul.Elaboration is
    begin
       Decl := Port_Chain;
       while Decl /= Null_Iir loop
-         --  LRM93 §12.2.3
+         --  LRM93 12.2.3
          --  The elaboration of a port declaration consists of elaborating the
          --  subtype indication and then creating a port of that subtype.
          Elaborate_Subtype_Indication_If_Anonymous (Instance, Get_Type (Decl));
@@ -1113,7 +1115,7 @@ package body Simul.Elaboration is
       end loop;
    end Elaborate_Port_Clause;
 
-   --  LRM93 §12.2.2  The generic Map Aspect
+   --  LRM93 12.2.2  The generic Map Aspect
    procedure Elaborate_Generic_Map_Aspect
      (Target_Instance : Block_Instance_Acc;
       Local_Instance : Block_Instance_Acc;
@@ -1275,7 +1277,7 @@ package body Simul.Elaboration is
    end Elab_Connect;
 
    --  LRM93 12.2.3  The Port Clause
-   --  LRM93 §12.2.4  The Port Map Aspect
+   --  LRM93 12.2.4  The Port Map Aspect
    procedure Elaborate_Port_Map_Aspect
      (Formal_Instance : Block_Instance_Acc;
       Actual_Instance : Block_Instance_Acc;
@@ -1421,7 +1423,7 @@ package body Simul.Elaboration is
       end loop;
    end Elaborate_Port_Map_Aspect;
 
-   --  LRM93 §12.2  Elaboration of a block header
+   --  LRM93 12.2  Elaboration of a block header
    --  Elaboration of a block header consists of the elaboration of the
    --  generic clause, the generic map aspect, the port clause, and the port
    --  map aspect, in that order.
@@ -1460,7 +1462,7 @@ package body Simul.Elaboration is
                              Instance => Instance));
    end Elaborate_Guard_Signal;
 
-   --  LRM93 §12.4.1  Block statements.
+   --  LRM93 12.4.1  Block statements.
    procedure Elaborate_Block_Statement
      (Instance : Block_Instance_Acc; Block : Iir_Block_Statement)
    is
@@ -1490,7 +1492,7 @@ package body Simul.Elaboration is
       Elaborate_Declarative_Part (Ninstance,
                                   Get_Declaration_Chain (Block));
       --  [...] followed by the elaboration of the block statement part.
-      Elaborate_Statement_Part
+      Elaborate_Concurrent_Statement_Part
         (Ninstance, Get_Concurrent_Statement_Chain (Block));
       --  Elaboration of a block statement may occur under the control of a
       --  configuration declaration.
@@ -1572,7 +1574,7 @@ package body Simul.Elaboration is
             Local := Get_Chain (Local);
          end loop;
 
-         Sub_Chain_Init (First, Last);
+         Chain_Init (First, Last);
          Formal := Formal_Chain;
          for I in Assoc_List'Range loop
             if Assoc_List (I) = Null_Iir then
@@ -1587,7 +1589,7 @@ package body Simul.Elaboration is
             end if;
             Set_Whole_Association_Flag (Assoc, True);
             Set_Formal (Assoc, Formal);
-            Sub_Chain_Append (First, Last, Assoc);
+            Chain_Append (First, Last, Assoc);
 
             Formal := Get_Chain (Formal);
          end loop;
@@ -1595,7 +1597,7 @@ package body Simul.Elaboration is
       end;
    end Create_Default_Association;
 
-   --  LRM93 §12.4.3
+   --  LRM93 12.4.3
    function Is_Fully_Bound (Conf : Iir) return Boolean
    is
       Binding : Iir;
@@ -1662,7 +1664,7 @@ package body Simul.Elaboration is
             Arch : Iir;
             Config : Iir;
          begin
-            case Get_Kind (Aspect) is
+            case Iir_Kinds_Entity_Aspect (Get_Kind (Aspect)) is
                when Iir_Kind_Entity_Aspect_Entity =>
                   Arch := Get_Architecture (Aspect);
                   if Arch = Null_Iir then
@@ -1679,8 +1681,6 @@ package body Simul.Elaboration is
                     (Get_Block_Configuration (Config));
                when Iir_Kind_Entity_Aspect_Open =>
                   return;
-               when others =>
-                  raise Internal_Error;
             end case;
             Config := Get_Block_Configuration (Config);
 
@@ -1697,7 +1697,7 @@ package body Simul.Elaboration is
    begin
       Elaborate_Declarative_Part
         (Instance, Get_Declaration_Chain (Bod));
-      Elaborate_Statement_Part
+      Elaborate_Concurrent_Statement_Part
         (Instance, Get_Concurrent_Statement_Chain (Bod));
    end Elaborate_Generate_Statement_Body;
 
@@ -1852,8 +1852,8 @@ package body Simul.Elaboration is
       end if;
    end Elaborate_Psl_Directive;
 
-   --  LRM93 §12.4  Elaboration of a Statement Part.
-   procedure Elaborate_Statement_Part
+   --  LRM93 12.4  Elaboration of a Statement Part.
+   procedure Elaborate_Concurrent_Statement_Part
      (Instance : Block_Instance_Acc; Stmt_Chain: Iir)
    is
       Stmt : Iir;
@@ -1896,18 +1896,21 @@ package body Simul.Elaboration is
               | Iir_Kind_Psl_Declaration =>
                null;
 
-            when Iir_Kind_Psl_Cover_Statement
-              | Iir_Kind_Psl_Assert_Statement
+            when Iir_Kind_Psl_Cover_Directive
+              | Iir_Kind_Psl_Assert_Directive
+              | Iir_Kind_Psl_Assume_Directive
               | Iir_Kind_Psl_Endpoint_Declaration =>
                Elaborate_Psl_Directive (Instance, Stmt);
 
-            when Iir_Kind_Concurrent_Simple_Signal_Assignment =>
+            when Iir_Kind_Concurrent_Simple_Signal_Assignment
+              | Iir_Kind_Concurrent_Selected_Signal_Assignment
+              | Iir_Kind_Concurrent_Conditional_Signal_Assignment =>
                --  In case concurrent signal assignemnts were not
                --  canonicalized.
                null;
 
             when others =>
-               Error_Kind ("elaborate_statement_part", Stmt);
+               Error_Kind ("elaborate_concurrent_statement_part", Stmt);
          end case;
          Stmt := Get_Chain (Stmt);
       end loop;
@@ -1927,7 +1930,7 @@ package body Simul.Elaboration is
          end loop;
          Instance.Children := Last;
       end;
-   end Elaborate_Statement_Part;
+   end Elaborate_Concurrent_Statement_Part;
 
    --  Compute the default value for declaration DECL, using either
    --  DEFAULT_VALUE if not null, or the implicit default value for DECL.
@@ -1948,7 +1951,7 @@ package body Simul.Elaboration is
       return Val;
    end Elaborate_Default_Value;
 
-   --  LRM93 §12.3.1.1  Subprogram Declaration and Bodies
+   --  LRM93 12.3.1.1  Subprogram Declaration and Bodies
    procedure Elaborate_Interface_List
      (Instance : Block_Instance_Acc; Inter_Chain : Iir)
    is
@@ -1974,7 +1977,7 @@ package body Simul.Elaboration is
       end loop;
    end Elaborate_Interface_List;
 
-   --  LRM93 §12.3.1.1  Subprogram Declaration and Bodies
+   --  LRM93 12.3.1.1  Subprogram Declaration and Bodies
    procedure Elaborate_Subprogram_Declaration
      (Instance : Block_Instance_Acc; Decl : Iir)
    is
@@ -2011,10 +2014,10 @@ package body Simul.Elaboration is
       Sub_Conf : Iir;
    begin
       if Trace_Elaboration then
-         Ada.Text_IO.Put ("configure component ");
-         Ada.Text_IO.Put (Name_Table.Image (Get_Label (Stmt)));
-         Ada.Text_IO.Put (": ");
-         Ada.Text_IO.Put_Line (Image_Identifier (Component));
+         Simple_IO.Put ("configure component ");
+         Simple_IO.Put (Name_Table.Image (Get_Label (Stmt)));
+         Simple_IO.Put (": ");
+         Simple_IO.Put_Line (Image_Identifier (Component));
       end if;
 
       --  Elaboration of a component instantiation statement that instanciates
@@ -2029,7 +2032,7 @@ package body Simul.Elaboration is
       end if;
 
       if Trace_Elaboration then
-         Ada.Text_IO.Put_Line
+         Simple_IO.Put_Line
            (" using " & Disp_Node (Conf) & " from " & Disp_Location (Conf));
       end if;
 
@@ -2232,13 +2235,12 @@ package body Simul.Elaboration is
 
       Item : Iir;
    begin
-      --  Gather children and reverse the list.
+      --  Gather children.
       declare
-         Child, Prev, First : Block_Instance_Acc;
+         Child : Block_Instance_Acc;
          Info : Sim_Info_Acc;
       begin
          Child := Instance.Children;
-         First := null;
          while Child /= null loop
             Info := Get_Info (Child.Label);
             if Info.Kind = Kind_Block then
@@ -2246,15 +2248,8 @@ package body Simul.Elaboration is
                pragma Assert (Sub_Instances (Info.Inst_Slot) = null);
                Sub_Instances (Info.Inst_Slot) := Child;
             end if;
-
-            --  Reverse
-            Prev := Child.Brother;
-            Child.Brother := First;
-            First := Child;
-
-            Child := Prev;
+            Child := Child.Brother;
          end loop;
-         Instance.Children := First;
       end;
 
       --  Associate configuration items with subinstance.  Gather items for
@@ -2310,9 +2305,9 @@ package body Simul.Elaboration is
                   El : Iir;
                   Info : Sim_Info_Acc;
                begin
-                  if List = Iir_Flist_All or else List = Iir_Flist_Others then
-                     raise Internal_Error;
-                  end if;
+                  --  The list has been expanded by canon.
+                  pragma Assert (List /= Iir_Flist_All
+                                   and then List /= Iir_Flist_Others);
                   for I in Flist_First .. Flist_Last (List) loop
                      El := Get_Nth_Element (List, I);
                      Info := Get_Info (Get_Named_Entity (El));
@@ -2393,7 +2388,7 @@ package body Simul.Elaboration is
         Unshare_Bounds (Res, Instance_Pool);
    end Elaborate_Alias_Declaration;
 
-   --  LRM93 §12.3.2.3  Disconnection Specifications
+   --  LRM93 12.3.2.3  Disconnection Specifications
    procedure Elaborate_Disconnection_Specification
      (Instance : Block_Instance_Acc;
       Decl : Iir_Disconnection_Specification)
@@ -2404,7 +2399,7 @@ package body Simul.Elaboration is
       Sig : Iir;
       Val : Iir_Value_Literal_Acc;
    begin
-      --  LRM93 §12.3.2.3
+      --  LRM93 12.3.2.3
       --  Elaboration of a disconnection specification proceeds as follows:
       --  2. The time expression is evaluated to determine the disconnection
       --     time for drivers of the affected signals.
@@ -2419,7 +2414,7 @@ package body Simul.Elaboration is
          Error_Msg_Sem (+Decl, "time must be non-negative");
       end if;
 
-      --  LRM93 §12.3.2.3
+      --  LRM93 12.3.2.3
       --  1. The guarded signal specification is elaborated in order to
       --     identify the signals affected by the disconnection specification.
       --
@@ -2481,7 +2476,18 @@ package body Simul.Elaboration is
       end case;
    end Elaborate_Branch_Quantity_Declaration;
 
-   --  LRM93 §12.3.1  Elaboration of a declaration
+   procedure Elaborate_Declaration_Type
+     (Instance : Block_Instance_Acc; Decl: Iir)
+   is
+      Ind : constant Iir := Get_Subtype_Indication (Decl);
+   begin
+      if Ind = Null_Iir or else Get_Kind (Ind) in Iir_Kinds_Denoting_Name then
+         return;
+      end if;
+      Elaborate_Subtype_Indication (Instance, Ind);
+   end Elaborate_Declaration_Type;
+
+   --  LRM93 12.3.1  Elaboration of a declaration
    procedure Elaborate_Declaration (Instance : Block_Instance_Acc; Decl : Iir)
    is
       Expr_Mark : Mark_Type;
@@ -2511,22 +2517,19 @@ package body Simul.Elaboration is
          when Iir_Kind_Subtype_Declaration =>
             Elaborate_Subtype_Indication (Instance, Get_Type (Decl));
          when Iir_Kind_Iterator_Declaration =>
-            Elaborate_Subtype_Indication_If_Anonymous
-              (Instance, Get_Type (Decl));
+            Elaborate_Declaration_Type (Instance, Decl);
             Val := Create_Value_For_Type
               (Instance, Get_Type (Decl), Init_Value_Default);
             Create_Object (Instance, Decl);
             Instance.Objects (Get_Info (Decl).Slot) :=
               Unshare (Val, Instance_Pool);
          when Iir_Kind_Signal_Declaration =>
-            Elaborate_Subtype_Indication_If_Anonymous
-              (Instance, Get_Type (Decl));
+            Elaborate_Declaration_Type (Instance, Decl);
             Val := Elaborate_Default_Value (Instance, Decl);
             Create_Signal (Instance, Decl);
             Elaborate_Signal (Instance, Decl, Val);
          when Iir_Kind_Variable_Declaration =>
-            Elaborate_Subtype_Indication_If_Anonymous
-              (Instance, Get_Type (Decl));
+            Elaborate_Declaration_Type (Instance, Decl);
             Val := Elaborate_Default_Value (Instance, Decl);
             Create_Object (Instance, Decl);
             Instance.Objects (Get_Info (Decl).Slot) :=
@@ -2541,8 +2544,7 @@ package body Simul.Elaboration is
                then
                   --  Create the object (except for full declaration of a
                   --  deferred constant).
-                  Elaborate_Subtype_Indication_If_Anonymous
-                    (Instance, Get_Type (Decl));
+                  Elaborate_Declaration_Type (Instance, Decl);
                   Create_Object (Instance, Decl);
                end if;
                --  Initialize the value (except for a deferred declaration).
@@ -2786,7 +2788,7 @@ package body Simul.Elaboration is
       end loop;
    end Finalize_Declarative_Part;
 
-   --  LRM93 §12.3  Elaboration of a Declarative Part
+   --  LRM93 12.3  Elaboration of a Declarative Part
    procedure Elaborate_Declarative_Part
      (Instance : Block_Instance_Acc; Decl_Chain : Iir)
    is
@@ -2828,10 +2830,10 @@ package body Simul.Elaboration is
       Mark (Expr_Mark, Expr_Pool);
 
       if Trace_Elaboration then
-         Ada.Text_IO.Put ("elaborating ");
-         Ada.Text_IO.Put (Image_Identifier (Arch));
-         Ada.Text_IO.Put (" of ");
-         Ada.Text_IO.Put_Line (Image_Identifier (Entity));
+         Simple_IO.Put ("elaborating ");
+         Simple_IO.Put (Image_Identifier (Arch));
+         Simple_IO.Put (" of ");
+         Simple_IO.Put_Line (Image_Identifier (Entity));
       end if;
 
       Instance := Create_Block_Instance (Parent_Instance, Arch, Stmt);
@@ -2854,9 +2856,9 @@ package body Simul.Elaboration is
       Elaborate_Declarative_Part
         (Instance, Get_Declaration_Chain (Entity));
       Elaborate_Declarative_Part (Instance, Get_Declaration_Chain (Arch));
-      Elaborate_Statement_Part
+      Elaborate_Concurrent_Statement_Part
         (Instance, Get_Concurrent_Statement_Chain (Entity));
-      Elaborate_Statement_Part
+      Elaborate_Concurrent_Statement_Part
         (Instance, Get_Concurrent_Statement_Chain (Arch));
 
       --  Configure the unit.  This will create sub units.
@@ -2869,7 +2871,7 @@ package body Simul.Elaboration is
 
    function Override_Generic (Formal : Iir; Str : String) return Iir
    is
-      use Evaluation;
+      use Vhdl.Evaluation;
       Formal_Type : constant Iir := Get_Type (Formal);
       Formal_Btype : constant Iir := Get_Base_Type (Formal_Type);
       Res : Iir;

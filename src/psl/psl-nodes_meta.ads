@@ -1,20 +1,18 @@
 --  Meta description of nodes.
 --  Copyright (C) 2015 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Types; use Types;
 with PSL.Nodes; use PSL.Nodes;
@@ -60,6 +58,7 @@ package PSL.Nodes_Meta is
       Field_Hash,
       Field_Hash_Link,
       Field_HDL_Index,
+      Field_HDL_Hash,
       Field_Presence,
       Field_NFA,
       Field_Parameter_List,
@@ -163,6 +162,7 @@ package PSL.Nodes_Meta is
    function Has_Hash (K : Nkind) return Boolean;
    function Has_Hash_Link (K : Nkind) return Boolean;
    function Has_HDL_Index (K : Nkind) return Boolean;
+   function Has_HDL_Hash (K : Nkind) return Boolean;
    function Has_Presence (K : Nkind) return Boolean;
    function Has_NFA (K : Nkind) return Boolean;
    function Has_Parameter_List (K : Nkind) return Boolean;

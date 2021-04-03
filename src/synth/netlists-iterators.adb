@@ -3,9 +3,9 @@
 --
 --  This file is part of GHDL.
 --
---  This program is free software; you can redistribute it and/or modify
+--  This program is free software: you can redistribute it and/or modify
 --  it under the terms of the GNU General Public License as published by
---  the Free Software Foundation; either version 2 of the License, or
+--  the Free Software Foundation, either version 2 of the License, or
 --  (at your option) any later version.
 --
 --  This program is distributed in the hope that it will be useful,
@@ -14,9 +14,7 @@
 --  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with this program; if not, write to the Free Software
---  Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston,
---  MA 02110-1301, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Netlists.Utils; use Netlists.Utils;
 
@@ -301,10 +299,12 @@ package body Netlists.Iterators is
       pragma Unreferenced (It);
    begin
       if Cur.Num > 1 then
+         --  Next net for the instance.
          return Nets_Cursor'(Inst => Cur.Inst,
                              N => Cur.N + 1,
                              Num => Cur.Num - 1);
       else
+         --  Next instance.
          declare
             Inst : Instance;
             Num : Port_Nbr;
@@ -314,10 +314,11 @@ package body Netlists.Iterators is
                Inst := Get_Next_Instance (Inst);
                exit when Inst = No_Instance;
                Num := Get_Nbr_Outputs (Inst);
-               pragma Assert (Num > 0);
-               return Nets_Cursor'(Inst => Inst,
-                                   N => Get_First_Output (Inst),
-                                   Num => Num);
+               if Num /= 0 then
+                  return Nets_Cursor'(Inst => Inst,
+                                      N => Get_First_Output (Inst),
+                                      Num => Num);
+               end if;
             end loop;
          end;
          return Nets_Cursor'(Inst => No_Instance,

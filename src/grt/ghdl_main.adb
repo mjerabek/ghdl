@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) entry point.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -44,18 +42,21 @@ is
    function To_Argv_Type is new Ada.Unchecked_Conversion
      (Source => System.Address, Target => Grt.Options.Argv_Type);
 
-   Default_Progname : constant String := "ghdl_design" & NUL;
+   Args : Grt.Options.Argv_Type := To_Argv_Type (Argv);
+   Progname : Ghdl_C_String := null;
 begin
-   --  Set program name.
-   if Argc > 0 then
-      Grt.Options.Progname := To_Argv_Type (Argv)(0);
-   else
-      Grt.Options.Progname := To_Ghdl_C_String (Default_Progname'Address);
-   end if;
-   Grt.Options.Argc := Argc;
-   Grt.Options.Argv := To_Argv_Type (Argv);
-
+   --  Ada elaboration.
    Grt_Init;
+
+   --  Set the options.
+   if not (Argc = 0 and Args = null) then
+     Progname := Args (0);
+   end if;
+   Grt.Main.Run_Options (Progname, Argc, Args);
+
+   --  Initialize, elaborate and simulate.
    Grt.Main.Run;
+
+   --  Return the status.
    return Grt.Errors.Exit_Status;
 end Ghdl_Main;

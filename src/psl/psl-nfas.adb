@@ -1,22 +1,21 @@
 --  PSL - NFA definition
 --  Copyright (C) 2002-2016 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Tables;
+with PSL.Types; use PSL.Types;
 
 package body PSL.NFAs is
    --  Record that describes an NFA.
@@ -28,6 +27,8 @@ package body PSL.NFAs is
       --  Start and final state.
       Start : NFA_State;
       Final : NFA_State;
+
+      Active : NFA_State;
 
       --  If true there is an epsilon transition between the start and
       --  the final state.
@@ -207,7 +208,7 @@ package body PSL.NFAs is
       --  Fill it.
       Nfat.Table (Res) := (First_State => No_State,
                            Last_State => No_State,
-                           Start => No_State, Final => No_State,
+                           Start | Final | Active => No_State,
                            Epsilon => False);
       return Res;
    end Create_NFA;
@@ -313,6 +314,16 @@ package body PSL.NFAs is
    begin
       Nfat.Table (N).Final := S;
    end Set_Final_State;
+
+   function Get_Active_State (N : NFA) return NFA_State is
+   begin
+      return Nfat.Table (N).Active;
+   end Get_Active_State;
+
+   procedure Set_Active_State (N : NFA; S : NFA_State) is
+   begin
+      Nfat.Table (N).Active := S;
+   end Set_Active_State;
 
    function Get_Next_Src_Edge (N : NFA_Edge) return NFA_Edge is
    begin

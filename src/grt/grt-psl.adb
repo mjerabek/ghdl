@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) - PSL report.
 --  Copyright (C) 2016 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -40,6 +38,8 @@ package body Grt.Psl is
    Is_First : Boolean := True;
    Nbr_Assert_Failed : Ghdl_U32 := 0;
    Nbr_Assert_Passed : Ghdl_U32 := 0;
+   Nbr_Assume_Failed : Ghdl_U32 := 0;
+   Nbr_Assume_Passed : Ghdl_U32 := 0;
    Nbr_Cover_Failed : Ghdl_U32 := 0;
    Nbr_Cover_Passed : Ghdl_U32 := 0;
 
@@ -96,6 +96,8 @@ package body Grt.Psl is
       case Ghdl_Rtiks_Psl (Rti.Kind) is
          when Ghdl_Rtik_Psl_Assert =>
             Put (F, """assertion""");
+         when Ghdl_Rtik_Psl_Assume =>
+            Put (F, """assumption""");
          when Ghdl_Rtik_Psl_Cover =>
             Put (F, """cover""");
       end case;
@@ -129,6 +131,14 @@ package body Grt.Psl is
             else
                Put (F, "failed");
                Inc (Nbr_Assert_Failed);
+            end if;
+         when Ghdl_Rtik_Psl_Assume =>
+            if Val = 0 then
+               Put (F, "passed");
+               Inc (Nbr_Assume_Passed);
+            else
+               Put (F, "failed");
+               Inc (Nbr_Assume_Failed);
             end if;
          when Ghdl_Rtik_Psl_Cover =>
             if Val = 0 then
@@ -184,6 +194,16 @@ package body Grt.Psl is
       Put_Line (F, ",");
       Put (F, "  ""assert-pass"": ");
       Put_U32 (F, Nbr_Assert_Passed);
+      Put_Line (F, ",");
+
+      Put (F, "  ""assume"": ");
+      Put_U32 (F, Nbr_Assume_Failed + Nbr_Assume_Passed);
+      Put_Line (F, ",");
+      Put (F, "  ""assume-failure"": ");
+      Put_U32 (F, Nbr_Assume_Failed);
+      Put_Line (F, ",");
+      Put (F, "  ""assume-pass"": ");
+      Put_U32 (F, Nbr_Assume_Passed);
       Put_Line (F, ",");
 
       Put (F, "  ""cover"": ");

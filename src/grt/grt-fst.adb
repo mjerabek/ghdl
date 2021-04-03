@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) - FST generator.
 --  Copyright (C) 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -38,6 +36,7 @@
 --    + Integer signals aren't displayed correctly but only their lowest bit is
 --      shown.
 
+with Ada.Unchecked_Deallocation;
 with Interfaces; use Interfaces;
 with Interfaces.C;
 with Grt.Types; use Grt.Types;
@@ -51,10 +50,10 @@ with Grt.Astdio; use Grt.Astdio;
 with Grt.Hooks; use Grt.Hooks;
 with Grt.Rtis; use Grt.Rtis;
 with Grt.Rtis_Types; use Grt.Rtis_Types;
-with Grt.Vstrings;
+with Grt.To_Strings;
 with Grt.Wave_Opt; use Grt.Wave_Opt;
 with Grt.Wave_Opt.Design; use Grt.Wave_Opt.Design;
-with Ada.Unchecked_Deallocation;
+with Grt.Options;
 pragma Elaborate_All (Grt.Table);
 
 package body Grt.Fst is
@@ -113,7 +112,7 @@ package body Grt.Fst is
 
       fstWriterSetFileType (Context, FST_FT_VHDL);
       fstWriterSetPackType (Context, FST_WR_PT_LZ4);
-      fstWriterSetTimescale (Context, -15); --  fs
+      fstWriterSetTimescale (Context, -3 * Options.Time_Resolution_Scale);
       fstWriterSetVersion (Context, To_Ghdl_C_String (Version'Address));
       fstWriterSetRepackOnClose (Context, 1);
       fstWriterSetParallelMode (Context, 0);
@@ -215,7 +214,7 @@ package body Grt.Fst is
 
    procedure Fst_Add_Signal (Sig : VhpiHandleT)
    is
-      Sig_Type, Sig_Base_Type : VhpiHandleT;
+      Sig_Typemark, Sig_Subtype, Sig_Base_Type : VhpiHandleT;
       Err : AvhpiErrorT;
       Vcd_El : Verilog_Wire_Info;
       Vt : fstVarType;
@@ -325,18 +324,18 @@ package body Grt.Fst is
       end if;
 
       --  Extract type name.
-      Vhpi_Handle (VhpiSubtype, Sig, Sig_Type, Err);
+      Vhpi_Handle (VhpiSubtype, Sig, Sig_Subtype, Err);
       if Err /= AvhpiErrorOk then
          Avhpi_Error (Err);
       end if;
-      Vhpi_Handle (VhpiTypeMark, Sig_Type, Sig_Type, Err);
+      Vhpi_Handle (VhpiTypeMark, Sig_Subtype, Sig_Typemark, Err);
       if Err /= AvhpiErrorOk then
          Avhpi_Error (Err);
       end if;
-      Vhpi_Get_Str (VhpiNameP, Sig_Type, Type_Name, Type_Name_Len);
+      Vhpi_Get_Str (VhpiNameP, Sig_Typemark, Type_Name, Type_Name_Len);
       if Type_Name_Len = 0 then
          --  Try with the base type.
-         Vhpi_Handle (VhpiBaseType, Sig_Type, Sig_Base_Type, Err);
+         Vhpi_Handle (VhpiBaseType, Sig_Subtype, Sig_Base_Type, Err);
          if Err /= AvhpiErrorOk then
             Avhpi_Error (Err);
          end if;
@@ -367,7 +366,7 @@ package body Grt.Fst is
                Num_First : Natural;
                Num_Len : Natural;
             begin
-               Grt.Vstrings.To_String (Num, Num_First, N);
+               Grt.To_Strings.To_String (Num, Num_First, N);
                Num_Len := Num'Last - Num_First + 1;
                Name2 (Name_Len + 1 .. Name_Len + Num_Len) :=
                  Num (Num_First .. Num'Last);

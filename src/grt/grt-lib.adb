@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) -  misc subprograms.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -25,8 +23,11 @@
 
 with Interfaces;
 with Grt.Errors; use Grt.Errors;
-with Grt.Options;
+with Grt.Errors_Exec; use Grt.Errors_Exec;
+with Grt.Severity;
+with Grt.Options; use Grt.Options;
 with Grt.Fcvt;
+with Grt.Backtraces;
 
 package body Grt.Lib is
    --procedure Memcpy (Dst : Address; Src : Address; Size : Size_T);
@@ -48,6 +49,7 @@ package body Grt.Lib is
                         Severity : Integer;
                         Loc : Ghdl_Location_Ptr)
    is
+      use Grt.Severity;
       Level : constant Integer := Severity mod 256;
       Bt : Backtrace_Addrs;
    begin
@@ -86,28 +88,34 @@ package body Grt.Lib is
          Error_S (Msg);
          Diag_C (" failed");
          Error_E_Call_Stack (Bt);
+      elsif Level >= Grt.Options.Backtrace_Severity then
+         Save_Backtrace (Bt, 2);
+         Grt.Backtraces.Put_Err_Backtrace (Bt);
       end if;
    end Do_Report;
 
-   procedure Ghdl_Assert_Failed
-     (Str : Std_String_Ptr; Severity : Integer; Loc : Ghdl_Location_Ptr)
-   is
+   function Is_Assert_Disabled (Policy : Assert_Handling) return Boolean is
    begin
+      return Policy = Disable_Asserts
+        or else (Policy = Disable_Asserts_At_Time_0 and Current_Time = 0);
+   end Is_Assert_Disabled;
+
+   procedure Ghdl_Assert_Failed
+     (Str : Std_String_Ptr; Severity : Integer; Loc : Ghdl_Location_Ptr) is
+   begin
+      if Is_Assert_Disabled (Asserts_Policy) then
+         return;
+      end if;
       Do_Report ("assertion", Str, "Assertion violation", Severity, Loc);
    end Ghdl_Assert_Failed;
 
    procedure Ghdl_Ieee_Assert_Failed
-     (Str : Std_String_Ptr; Severity : Integer; Loc : Ghdl_Location_Ptr)
-   is
-      use Grt.Options;
+     (Str : Std_String_Ptr; Severity : Integer; Loc : Ghdl_Location_Ptr) is
    begin
-      if Ieee_Asserts = Disable_Asserts
-        or else (Ieee_Asserts = Disable_Asserts_At_Time_0 and Current_Time = 0)
-      then
+      if Is_Assert_Disabled (Ieee_Asserts) then
          return;
-      else
-         Do_Report ("assertion", Str, "Assertion violation", Severity, Loc);
       end if;
+      Do_Report ("assertion", Str, "Assertion violation", Severity, Loc);
    end Ghdl_Ieee_Assert_Failed;
 
    procedure Ghdl_Psl_Assert_Failed
@@ -115,6 +123,12 @@ package body Grt.Lib is
    begin
       Do_Report ("psl assertion", Str, "Assertion violation", Severity, Loc);
    end Ghdl_Psl_Assert_Failed;
+
+   procedure Ghdl_Psl_Assume_Failed (Loc : Ghdl_Location_Ptr) is
+   begin
+      Do_Report ("psl assumption", null, "Assumption violation",
+                 Grt.Severity.Error_Severity, Loc);
+   end Ghdl_Psl_Assume_Failed;
 
    procedure Ghdl_Psl_Cover
      (Str : Std_String_Ptr; Severity : Integer; Loc : Ghdl_Location_Ptr) is
@@ -125,15 +139,15 @@ package body Grt.Lib is
    procedure Ghdl_Psl_Cover_Failed
      (Str : Std_String_Ptr; Severity : Integer; Loc : Ghdl_Location_Ptr) is
    begin
-      Do_Report ("psl cover failure",
-                 Str, "sequence not covered", Severity, Loc);
+      if Flag_Psl_Report_Uncovered then
+         Do_Report ("psl cover failure",
+                    Str, "sequence not covered", Severity, Loc);
+      end if;
    end Ghdl_Psl_Cover_Failed;
 
-   procedure Ghdl_Report
-     (Str : Std_String_Ptr;
-      Severity : Integer;
-      Loc : Ghdl_Location_Ptr)
-   is
+   procedure Ghdl_Report (Str : Std_String_Ptr;
+                          Severity : Integer;
+                          Loc      : Ghdl_Location_Ptr) is
    begin
       Do_Report ("report", Str, "Assertion violation", Severity, Loc);
    end Ghdl_Report;
@@ -190,6 +204,38 @@ package body Grt.Lib is
       Diag_C (Line);
       Error_E_Call_Stack (Bt);
    end Ghdl_Direction_Check_Failed;
+
+   procedure Diag_C_Range (Rng : Std_Integer_Range_Ptr) is
+   begin
+      Diag_C (Rng.Left);
+      case Rng.Dir is
+         when Dir_Downto =>
+            Diag_C (" downto ");
+         when Dir_To =>
+            Diag_C (" to ");
+      end case;
+      Diag_C (Rng.Right);
+   end Diag_C_Range;
+
+   procedure Ghdl_Integer_Index_Check_Failed
+     (Filename : Ghdl_C_String;
+      Line     : Ghdl_I32;
+      Val      : Std_Integer;
+      Rng      : Std_Integer_Range_Ptr)
+   is
+      Bt : Backtrace_Addrs;
+   begin
+      Save_Backtrace (Bt, 1);
+      Error_S ("index (");
+      Diag_C (Val);
+      Diag_C (") out of bounds (");
+      Diag_C_Range (Rng);
+      Diag_C (") at ");
+      Diag_C (Filename);
+      Diag_C (":");
+      Diag_C (Line);
+      Error_E_Call_Stack (Bt);
+   end Ghdl_Integer_Index_Check_Failed;
 
    function Hi (V : Ghdl_I64) return Ghdl_U32 is
    begin

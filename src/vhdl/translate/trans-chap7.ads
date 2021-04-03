@@ -1,35 +1,36 @@
 --  Iir to ortho translator.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 package Trans.Chap7 is
+   --  Allocate a value (with the same bounds) on the stack for SIG.
+   --  Note: SIG must be stable.
+   function Allocate_Value_From_Signal (Sig : Mnode; Sig_Type : Iir)
+                                       return Mnode;
+
    --  Generic function to extract a value from a signal.
    generic
       with function Read_Value (Sig : O_Enode; Sig_Type : Iir)
                                    return O_Enode;
-   function Translate_Signal_Value (Sig : O_Enode; Sig_Type : Iir)
-                                       return O_Enode;
+   function Translate_Signal_Value (Sig : Mnode; Sig_Type : Iir) return Mnode;
 
-   function Translate_Signal_Driving_Value (Sig : O_Enode; Sig_Type : Iir)
-                                               return O_Enode;
+   function Translate_Signal_Driving_Value (Sig : Mnode; Sig_Type : Iir)
+                                           return Mnode;
 
    --  For conversions.
-   procedure Set_Driving_Value
-     (Sig : Mnode; Sig_Type : Iir; Val : Mnode);
+   procedure Set_Driving_Value (Sig : Mnode; Sig_Type : Iir; Val : Mnode);
 
    --  Translate expression EXPR into ortho tree.
    function Translate_Expression (Expr : Iir; Rtype : Iir := Null_Iir)
@@ -80,6 +81,10 @@ package Trans.Chap7 is
    function Translate_Type_Conversion
      (Expr : O_Enode; Expr_Type : Iir; Res_Type : Iir; Loc : Iir)
      return O_Enode;
+
+   --  Subtype conversions.
+   procedure Convert_Constrained_To_Unconstrained
+     (Res : in out Mnode; Expr : Mnode);
 
    --  Convert bounds SRC (of type SRC_TYPE) to RES (of type RES_TYPE).
    procedure Translate_Type_Conversion_Bounds

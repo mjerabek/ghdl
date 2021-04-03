@@ -1,20 +1,18 @@
 --  Mcode back-end for ortho.
 --  Copyright (C) 2006 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with Ada.Text_IO;
 with Ortho_Code.Debug;
 with Ortho_Ident;
@@ -59,6 +57,31 @@ package body Ortho_Mcode is
         (Ortho_Code.Types.O_Element_List (Elements),
          Ortho_Code.O_Tnode (Res));
    end Finish_Record_Type;
+
+   procedure Start_Record_Subtype
+     (Rtype : O_Tnode; Elements : out O_Element_Sublist) is
+   begin
+      Ortho_Code.Types.Start_Record_Subtype
+        (Ortho_Code.O_Tnode (Rtype),
+         Ortho_Code.Types.O_Element_List (Elements));
+   end Start_Record_Subtype;
+
+   procedure New_Subrecord_Field
+     (Elements : in out O_Element_Sublist; El : out O_Fnode; Etype : O_Tnode)
+   is
+   begin
+      Ortho_Code.Types.New_Subrecord_Field
+        (Ortho_Code.Types.O_Element_List (Elements),
+         Ortho_Code.O_Fnode (El), Ortho_Code.O_Tnode (Etype));
+   end New_Subrecord_Field;
+
+   procedure Finish_Record_Subtype
+     (Elements : in out O_Element_Sublist; Res : out O_Tnode) is
+   begin
+      Ortho_Code.Types.Finish_Record_Subtype
+        (Ortho_Code.Types.O_Element_List (Elements),
+         Ortho_Code.O_Tnode (Res));
+   end Finish_Record_Subtype;
 
    procedure New_Uncomplete_Record_Type (Res : out O_Tnode) is
    begin
@@ -127,8 +150,8 @@ package body Ortho_Mcode is
                                           Ortho_Code.O_Tnode (Index_Type)));
    end New_Array_Type;
 
-   function New_Constrained_Array_Type (Atype : O_Tnode; Length : O_Cnode)
-                                       return O_Tnode
+   function New_Array_Subtype
+     (Atype : O_Tnode; El_Type : O_Tnode; Length : O_Cnode) return O_Tnode
    is
       Len : constant Ortho_Code.O_Cnode := Ortho_Code.O_Cnode (Length);
       L_Type : Ortho_Code.O_Tnode;
@@ -137,9 +160,10 @@ package body Ortho_Mcode is
       if Get_Type_Kind (L_Type) /= OT_Unsigned then
          raise Syntax_Error;
       end if;
-      return O_Tnode (New_Constrained_Array_Type
-                        (Ortho_Code.O_Tnode (Atype), Get_Const_U32 (Len)));
-   end New_Constrained_Array_Type;
+      return O_Tnode (New_Array_Subtype (Ortho_Code.O_Tnode (Atype),
+                      Ortho_Code.O_Tnode (El_Type),
+                      Get_Const_U32 (Len)));
+   end New_Array_Subtype;
 
    function New_Unsigned_Type (Size : Natural) return O_Tnode is
    begin
@@ -283,12 +307,14 @@ package body Ortho_Mcode is
          Ortho_Code.O_Cnode (Res));
    end Finish_Record_Aggr;
 
-   procedure Start_Array_Aggr (List : out O_Array_Aggr_List; Atype : O_Tnode)
+   procedure Start_Array_Aggr
+     (List : out O_Array_Aggr_List; Atype : O_Tnode; Len : Unsigned_32)
    is
    begin
       Ortho_Code.Consts.Start_Array_Aggr
         (Ortho_Code.Consts.O_Array_Aggr_List (List),
-         Ortho_Code.O_Tnode (Atype));
+         Ortho_Code.O_Tnode (Atype),
+         Len);
    end Start_Array_Aggr;
 
    procedure New_Array_Aggr_El (List : in out O_Array_Aggr_List;
@@ -322,6 +348,14 @@ package body Ortho_Mcode is
         (Ortho_Code.Consts.New_Sizeof (Ortho_Code.O_Tnode (Atype),
                                        Ortho_Code.O_Tnode (Rtype)));
    end New_Sizeof;
+
+   function New_Record_Sizeof
+     (Atype : O_Tnode; Rtype : O_Tnode) return O_Cnode is
+   begin
+      return O_Cnode
+        (Ortho_Code.Consts.New_Record_Sizeof (Ortho_Code.O_Tnode (Atype),
+                                              Ortho_Code.O_Tnode (Rtype)));
+   end New_Record_Sizeof;
 
    function New_Alignof (Atype : O_Tnode; Rtype : O_Tnode) return O_Cnode is
    begin
@@ -447,6 +481,13 @@ package body Ortho_Mcode is
         (Ortho_Code.Exprs.New_Convert_Ov (Ortho_Code.O_Enode (Val),
                                           Ortho_Code.O_Tnode (Rtype)));
    end New_Convert_Ov;
+
+   function New_Convert (Val : O_Enode; Rtype : O_Tnode) return O_Enode is
+   begin
+      return O_Enode
+        (Ortho_Code.Exprs.New_Convert (Ortho_Code.O_Enode (Val),
+                                       Ortho_Code.O_Tnode (Rtype)));
+   end New_Convert;
 
    function New_Address (Lvalue : O_Lnode; Atype : O_Tnode)
                         return O_Enode is

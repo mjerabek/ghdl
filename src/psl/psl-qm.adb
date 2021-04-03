@@ -1,23 +1,22 @@
 --  PSL - Small QM reduction
 --  Copyright (C) 2002-2016 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Ada.Text_IO;
 with Types; use Types;
+with PSL.Types; use PSL.Types;
 with PSL.Errors; use PSL.Errors;
 with PSL.Prints;
 with PSL.CSE;
@@ -196,7 +195,7 @@ package body PSL.QM is
    function Build_Primes (N : Node; Negate : Boolean) return Primes_Set is
    begin
       case Get_Kind (N) is
-         when N_HDL_Expr
+         when N_HDL_Bool
            | N_EOS =>
             declare
                Res : Primes_Set (1);
@@ -273,6 +272,22 @@ package body PSL.QM is
                -- !(a -> b)  <->  a && !b
                return Build_Primes_And (Build_Primes (Get_Left (N), False),
                                         Build_Primes (Get_Right (N), True));
+            end if;
+         when N_Equiv_Bool =>
+            if not Negate then
+               --  a <-> b  <->  (a && b) || (!a && !b)
+               return Build_Primes_Or
+                 (Build_Primes_And (Build_Primes (Get_Left (N), False),
+                                    Build_Primes (Get_Right (N), False)),
+                  Build_Primes_And (Build_Primes (Get_Left (N), True),
+                                    Build_Primes (Get_Right (N), True)));
+            else
+               -- !(a <-> b)  <->  (!a && b) || (a && !b)
+               return Build_Primes_Or
+                 (Build_Primes_And (Build_Primes (Get_Left (N), True),
+                                    Build_Primes (Get_Right (N), False)),
+                  Build_Primes_And (Build_Primes (Get_Left (N), False),
+                                    Build_Primes (Get_Right (N), True)));
             end if;
          when others =>
             Error_Kind ("build_primes", N);

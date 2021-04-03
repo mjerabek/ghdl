@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) -  Run Time Informations.
---  Copyright (C) 2002 - 2014 Tristan Gingold
+--  Copyright (C) 2002 - 2020 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -79,7 +77,7 @@ package Grt.Rtis is
       Ghdl_Rtik_Type_File,                    --  Rtin_Type_Fileacc
       Ghdl_Rtik_Subtype_Scalar,               --  Rtin_Subtype_Scalar
       Ghdl_Rtik_Subtype_Array,                --  Rtin_Subtype_Composite
-      Ghdl_Rtik_Subtype_Unconstrained_Array,
+      Ghdl_Rtik_Subtype_Unbounded_Array,
 
       Ghdl_Rtik_Subtype_Record, -- 40         --  Rtin_Subtype_Composite
       Ghdl_Rtik_Subtype_Unbounded_Record,
@@ -94,6 +92,7 @@ package Grt.Rtis is
       Ghdl_Rtik_Attribute_Stable,
 
       Ghdl_Rtik_Psl_Assert,
+      Ghdl_Rtik_Psl_Assume,
       Ghdl_Rtik_Psl_Cover,
       Ghdl_Rtik_Psl_Endpoint,
 
@@ -151,7 +150,10 @@ package Grt.Rtis is
    type Ghdl_Rtin_Block is record
       Common : Ghdl_Rti_Common;
       Name : Ghdl_C_String;
+      --  Address of the instantiation data relative to the parent's
+      --  instantation data address.
       Loc : Ghdl_Rti_Loc;
+      --  Line and column of the declaration.
       Linecol : Ghdl_Index_Type;
       Parent : Ghdl_Rti_Access;
       Nbr_Child : Ghdl_Index_Type;
@@ -167,10 +169,16 @@ package Grt.Rtis is
    type Ghdl_Rtin_Generate is record
       Common : Ghdl_Rti_Common;
       Name : Ghdl_C_String;
+      --  Address of the instantiation data relative to the parent's
+      --  instantation data address.
       Loc : Ghdl_Rti_Loc;
+      --  Line and column of the declaration.
       Linecol : Ghdl_Index_Type;
       Parent : Ghdl_Rti_Access;
-      --  Only for for_generate_statement.
+      --  The total size of the instantiation data for the contents of
+      --  the generate statement. Useful to find the instantation data
+      --  for a particular index of the loop. Only used for
+      --  for_generate_statement.
       Size : Ghdl_Index_Type;
       Child : Ghdl_Rti_Access;
    end record;
@@ -193,14 +201,13 @@ package Grt.Rtis is
    type Ghdl_Rtin_Object is record
       Common : Ghdl_Rti_Common;
       Name : Ghdl_C_String;
-
-      --  Address of the object.  For a signal, this is the address of the
-      --  signal, the value is just after the signal.
+      --  Address of the instantiation data relative to the parent's
+      --  instantation data address. For a signal/port, this location
+      --  contains the address of the signal. For a constant/generic
+      --  this is the location of the value.
       Loc : Ghdl_Rti_Loc;
-
       --  Type of the object.
       Obj_Type : Ghdl_Rti_Access;
-
       --  Line and column of the declaration.
       Linecol : Ghdl_Index_Type;
    end record;
@@ -278,6 +285,9 @@ package Grt.Rtis is
       Common : Ghdl_Rti_Common;
       Name : Ghdl_C_String;
       Basetype : Ghdl_Rti_Access;
+      --  Address of the instantiation data relative to the parent's
+      --  instantation data address.  The instantiation data in this
+      --  case is the range of the scalar.
       Range_Loc : Ghdl_Rti_Loc;
    end record;
    pragma Convention (C, Ghdl_Rtin_Subtype_Scalar);
@@ -299,8 +309,15 @@ package Grt.Rtis is
       Common : Ghdl_Rti_Common;
       Name : Ghdl_C_String;
       Element : Ghdl_Rti_Access;
+      --  The number of dimension of the array.
+      --  (e.g. array(1 downto 0, 2 downto 0, 3 downto 0) has 3 dimensions)
       Nbr_Dim : Ghdl_Index_Type;
+      --  An array of types, one for each range of the dimensions.
       Indexes : Ghdl_Rti_Arr_Acc;
+      --  Note: An array has no `Loc` field so it has no instantiation
+      --  data.  A consequence of this is that `Element` must be
+      --  fully constrained, since there is nowhere to store the
+      --  constraints applied by this type.
    end record;
    pragma Convention (C, Ghdl_Rtin_Type_Array);
    type Ghdl_Rtin_Type_Array_Acc is access Ghdl_Rtin_Type_Array;
@@ -313,6 +330,11 @@ package Grt.Rtis is
       Common : Ghdl_Rti_Common;
       Name : Ghdl_C_String;
       Basetype : Ghdl_Rti_Access;
+      --  Address of the instantiation data relative to the parent's
+      --  instantation data address. For an array the instantiation
+      --  data would constain the element sizes, and the bounds. For a
+      --  record the instantiation data consists of the element
+      --  instantiation data.
       Layout : Ghdl_Rti_Loc;
    end record;
    pragma Convention (C, Ghdl_Rtin_Subtype_Composite);
@@ -332,21 +354,44 @@ package Grt.Rtis is
    function To_Ghdl_Rtin_Type_Fileacc_Acc is new Ada.Unchecked_Conversion
      (Source => Ghdl_Rti_Access, Target => Ghdl_Rtin_Type_Fileacc_Acc);
 
-   --  Set in the mode field to know what Val_Off and Sig_Off are relative to.
-   --  This could also be extrated from the element type.
+   --  A static element is one in which the data structure does not depend
+   --  on the context.
    Ghdl_Rti_Element_Static : constant Ghdl_Rti_U8 := 0;
+   --  A complex element is one in which the data structure can depend
+   --  on the context. For example:
+   --  * An array with a size given by a generic parameter.
+   --  * A record containing an array with a size given by a for-generate
+   --    loop variable.
    Ghdl_Rti_Element_Complex : constant Ghdl_Rti_U8 := 1;
+   --  The element is unbounded. (i.e. The bounds must be specified by
+   --  a subtype of the record).
    Ghdl_Rti_Element_Unbounded : constant Ghdl_Rti_U8 := 2;
+
+   --  Whether an element is static, complex or unbounded is set in the
+   --  `Common.Mode` field.
+   --  This could also be extracted from the element type.
 
    type Ghdl_Rtin_Element is record
       Common : Ghdl_Rti_Common;
       Name : Ghdl_C_String;
       Eltype : Ghdl_Rti_Access;
-      --  For static element: offset in the record.
-      --  For complex element: offset in the type layout or object layout.
+      --  `Val_Off` and `Sig_Off` are used to find the object data
+      --  corresponding to this element. If the object is a
+      --  constant/generic use the `Val_Off` offset. If the object is
+      --  a signal/port use the `Sig_Off` offset.
+      --  For a static element the offset is the position of
+      --  the element instantiation data within the record's instantiation
+      --  data.
+      --  For a complex element the size of the instantiation data was
+      --  unknown at compile time, so the location given my the offset
+      --  instead contains the address of the element's instantiation
+      --  data.
       Val_Off : Ghdl_Index_Type;
       Sig_Off : Ghdl_Index_Type;
-      --  For unbounded records: element layout offset in the layout.
+      --  If the element has an unbounded type, then we need to store
+      --  information about the bounds/layout of that type somewhere.
+      --  `Layout_Off` gives the location of these bounds/layout within
+      --  the instantiation data.
       Layout_Off : Ghdl_Index_Type;
    end record;
    pragma Convention (C, Ghdl_Rtin_Element);
@@ -359,7 +404,10 @@ package Grt.Rtis is
       Name : Ghdl_C_String;
       Nbrel : Ghdl_Index_Type;
       Elements : Ghdl_Rti_Arr_Acc;
-      --  Layout variable for the record, if it is complex.
+      --  Address of the instantiation data relative to the parent's
+      --  instantation data address. A record only needs instantiation
+      --  data if it is complex.  Otherwise all the layout information
+      --  is stored directly in the element RTI structures.
       Layout : Ghdl_Rti_Loc;
    end record;
    pragma Convention (C, Ghdl_Rtin_Type_Record);
@@ -444,6 +492,7 @@ package Grt.Rtis is
 
    --  Address of the top instance.
    Ghdl_Rti_Top_Instance : Address;
+   pragma Export (C, Ghdl_Rti_Top_Instance, "__ghdl_rti_top_instance");
 
    --  Instances have a pointer to their RTI at offset 0.
    type Ghdl_Rti_Acc_Acc is access Ghdl_Rti_Access;

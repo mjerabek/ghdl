@@ -1,20 +1,18 @@
 --  Ortho debug back-end.
 --  Copyright (C) 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Ada.Unchecked_Deallocation;
 
@@ -262,13 +260,18 @@ package body Ortho_Debug is
       if T1 = T2 then
          return;
       end if;
-      if T1.Kind = ON_Array_Sub_Type and then T2.Kind = ON_Array_Sub_Type
-        and then T1.Base_Type = T2.Base_Type
+      --  TODO: Two different subtypes with the same constraints are allowed.
+      --  Is it needed ?
+      if T1.Kind = ON_Array_Subtype and then T2.Kind = ON_Array_Subtype
+        and then T1.Arr_Base = T2.Arr_Base
+        and then T1.Arr_El_Type = T2.Arr_El_Type
         and then T1.Length.all = T2.Length.all
       then
          return;
       end if;
-      raise Type_Error;
+      if not Disable_Checks then
+         raise Type_Error;
+      end if;
    end Check_Type;
 
    procedure Check_Ref (N : O_Enode) is
@@ -304,6 +307,16 @@ package body Ortho_Debug is
          raise Syntax_Error;
       end if;
    end Check_Complete_Type;
+
+   procedure Check_Constrained_Type (T : O_Tnode) is
+   begin
+      if not T.Constrained then
+         --  Unconstrained type cannot be used here (since its size is
+         --  required, for example).
+         null;
+         raise Syntax_Error;
+      end if;
+   end Check_Constrained_Type;
 
    function New_Dyadic_Op (Kind : ON_Dyadic_Op_Kind; Left, Right : O_Enode)
      return O_Enode
@@ -424,9 +437,7 @@ package body Ortho_Debug is
                                            Ref => False);
    end New_Default_Value;
 
-   function New_Sizeof (Atype : O_Tnode; Rtype : O_Tnode) return O_Cnode
-   is
-      subtype O_Cnode_Sizeof_Type is O_Cnode_Type (OC_Sizeof_Lit);
+   function New_Sizeof (Atype : O_Tnode; Rtype : O_Tnode) return O_Cnode is
    begin
       if Rtype.Kind /= ON_Unsigned_Type
         and then Rtype.Kind /= ON_Access_Type
@@ -434,14 +445,30 @@ package body Ortho_Debug is
          raise Type_Error;
       end if;
       Check_Complete_Type (Atype);
-      if Atype.Kind = ON_Array_Type then
+      Check_Constrained_Type (Atype);
+      return new O_Cnode_Type'(Kind => OC_Sizeof_Lit,
+                               Ctype => Rtype,
+                               Ref => False,
+                               S_Type => Atype);
+   end New_Sizeof;
+
+   function New_Record_Sizeof
+     (Atype : O_Tnode; Rtype : O_Tnode) return O_Cnode is
+   begin
+      if Rtype.Kind /= ON_Unsigned_Type
+        and then Rtype.Kind /= ON_Access_Type
+      then
          raise Type_Error;
       end if;
-      return new O_Cnode_Sizeof_Type'(Kind => OC_Sizeof_Lit,
-                                      Ctype => Rtype,
-                                      Ref => False,
-                                      S_Type => Atype);
-   end New_Sizeof;
+      Check_Complete_Type (Atype);
+      if Atype.Kind /= ON_Record_Type then
+         raise Type_Error;
+      end if;
+      return new O_Cnode_Type'(Kind => OC_Record_Sizeof_Lit,
+                               Ctype => Rtype,
+                               Ref => False,
+                               S_Type => Atype);
+   end New_Record_Sizeof;
 
    function New_Alignof (Atype : O_Tnode; Rtype : O_Tnode) return O_Cnode
    is
@@ -494,23 +521,17 @@ package body Ortho_Debug is
       return Res;
    end New_Alloca;
 
-   procedure Check_Constrained_Type (Atype : O_Tnode) is
+   function Get_Base_Type (Atype : O_Tnode) return O_Tnode is
    begin
       case Atype.Kind is
-         when ON_Array_Type =>
-            raise Type_Error;
-         when ON_Unsigned_Type
-           | ON_Signed_Type
-           | ON_Boolean_Type
-           | ON_Record_Type
-           | ON_Union_Type
-           | ON_Access_Type
-           | ON_Float_Type
-           | ON_Array_Sub_Type
-           | ON_Enum_Type =>
-            null;
+         when ON_Array_Subtype =>
+            return Atype.Arr_Base;
+         when ON_Record_Subtype =>
+            return Atype.Subrec_Base;
+         when others =>
+            return Atype;
       end case;
-   end Check_Constrained_Type;
+   end Get_Base_Type;
 
    procedure New_Completed_Type_Decl (Atype : O_Tnode)
    is
@@ -526,15 +547,14 @@ package body Ortho_Debug is
       Add_Decl (N, False);
    end New_Completed_Type_Decl;
 
-   procedure New_Uncomplete_Record_Type (Res : out O_Tnode)
-   is
-      subtype O_Tnode_Record_Type is O_Tnode_Type (ON_Record_Type);
+   procedure New_Uncomplete_Record_Type (Res : out O_Tnode) is
    begin
-      Res := new O_Tnode_Record_Type'(Kind => ON_Record_Type,
-                                      Decl => O_Dnode_Null,
-                                      Uncomplete => True,
-                                      Complete => False,
-                                      Elements => O_Fnode_Null);
+      Res := new O_Tnode_Type'(Kind => ON_Record_Type,
+                               Decl => O_Dnode_Null,
+                               Uncomplete => True,
+                               Complete => False,
+                               Constrained => True,
+                               Rec_Elements => O_Fnode_Null);
    end New_Uncomplete_Record_Type;
 
    procedure Start_Uncomplete_Record_Type (Res : O_Tnode;
@@ -544,7 +564,7 @@ package body Ortho_Debug is
          --  RES record type is not an uncomplete record type.
          raise Syntax_Error;
       end if;
-      if Res.Elements /= O_Fnode_Null then
+      if Res.Rec_Elements /= O_Fnode_Null then
          --  RES record type already has elements...
          raise Syntax_Error;
       end if;
@@ -554,14 +574,16 @@ package body Ortho_Debug is
 
    procedure Start_Record_Type (Elements : out O_Element_List)
    is
-      subtype O_Tnode_Record_Type is O_Tnode_Type (ON_Record_Type);
+      Res : O_Tnode;
    begin
-      Elements.Res := new O_Tnode_Record_Type'(Kind => ON_Record_Type,
-                                               Decl => O_Dnode_Null,
-                                               Uncomplete => False,
-                                               Complete => False,
-                                               Elements => O_Fnode_Null);
-      Elements.Last := null;
+      Res := new O_Tnode_Type'(Kind => ON_Record_Type,
+                               Decl => O_Dnode_Null,
+                               Uncomplete => False,
+                               Complete => False,
+                               Constrained => True,
+                               Rec_Elements => O_Fnode_Null);
+      Elements := (Res => Res,
+                   Last => null);
    end Start_Record_Type;
 
    procedure New_Record_Field
@@ -571,15 +593,16 @@ package body Ortho_Debug is
    is
    begin
       Check_Complete_Type (Etype);
-      Check_Constrained_Type (Etype);
+      if not Etype.Constrained then
+         Elements.Res.Constrained := False;
+      end if;
       El := new O_Fnode_Type'(Parent => Elements.Res,
                               Next => null,
                               Ident => Ident,
-                              Ftype => Etype,
-                              Offset => 0);
+                              Ftype => Etype);
       --  Append EL.
       if Elements.Last = null then
-         Elements.Res.Elements := El;
+         Elements.Res.Rec_Elements := El;
       else
          Elements.Last.Next := El;
       end if;
@@ -597,15 +620,82 @@ package body Ortho_Debug is
       Res.Complete := True;
    end Finish_Record_Type;
 
-   procedure Start_Union_Type (Elements : out O_Element_List)
+   procedure Start_Record_Subtype
+     (Rtype : O_Tnode; Elements : out O_Element_Sublist)
    is
-      subtype O_Tnode_Union_Type is O_Tnode_Type (ON_Union_Type);
+      Res : O_Tnode;
    begin
-      Elements.Res := new O_Tnode_Union_Type'(Kind => ON_Union_Type,
-                                              Decl => O_Dnode_Null,
-                                              Uncomplete => False,
-                                              Complete => False,
-                                              Elements => O_Fnode_Null);
+      if Rtype.Kind /= ON_Record_Type then
+         raise Syntax_Error;
+      end if;
+
+      Res := new O_Tnode_Type'(Kind => ON_Record_Subtype,
+                               Decl => O_Dnode_Null,
+                               Uncomplete => False,
+                               Complete => False,
+                               Constrained => True,
+                               Subrec_Elements => O_Fnode_Null,
+                               Subrec_Base => Rtype);
+      Elements := (Res => Res,
+                   Last => null,
+                   Base_Field => Rtype.Rec_Elements);
+   end Start_Record_Subtype;
+
+   procedure New_Subrecord_Field
+     (Elements : in out O_Element_Sublist; El : out O_Fnode; Etype : O_Tnode)
+   is
+      Base_Field : O_Fnode;
+   begin
+      Check_Complete_Type (Etype);
+      Check_Constrained_Type (Etype);
+
+      Base_Field := Elements.Base_Field;
+      if Base_Field = O_Fnode_Null then
+         raise Syntax_Error;
+      end if;
+      if Base_Field.Ftype.Constrained then
+         --  For constrained field of the base type, the type must be the
+         --  same.
+         if Base_Field.Ftype /= Etype then
+            raise Syntax_Error;
+         end if;
+      else
+         --  Otherwise, must be a subtype.
+         if Get_Base_Type (Etype) /= Base_Field.Ftype then
+            raise Syntax_Error;
+         end if;
+      end if;
+      El := new O_Fnode_Type'(Parent => Elements.Res,
+                              Next => null,
+                              Ident => Base_Field.Ident,
+                              Ftype => Etype);
+
+      --  Append EL.
+      if Elements.Last = null then
+         Elements.Res.Subrec_Elements := El;
+      else
+         Elements.Last.Next := El;
+      end if;
+      Elements.Last := El;
+
+      Elements.Base_Field := Base_Field.Next;
+   end New_Subrecord_Field;
+
+   procedure Finish_Record_Subtype
+     (Elements : in out O_Element_Sublist; Res : out O_Tnode) is
+   begin
+      Res := Elements.Res;
+      Res.Complete := True;
+   end Finish_Record_Subtype;
+
+   procedure Start_Union_Type (Elements : out O_Element_List) is
+   begin
+      Elements.Res := new O_Tnode_Type'(Kind => ON_Union_Type,
+                                        Decl => O_Dnode_Null,
+                                        Uncomplete => False,
+                                        Complete => False,
+                                        Constrained => True,
+                                        Rec_Elements => O_Fnode_Null);
       Elements.Last := null;
    end Start_Union_Type;
 
@@ -625,29 +715,34 @@ package body Ortho_Debug is
       Res.Complete := True;
    end Finish_Union_Type;
 
+   function Is_Subtype (T : O_Tnode) return Boolean is
+   begin
+      case T.Kind is
+         when ON_Array_Subtype
+            | ON_Record_Subtype =>
+            return True;
+         when others =>
+            return False;
+      end case;
+   end Is_Subtype;
+
    function New_Access_Type (Dtype : O_Tnode) return O_Tnode
    is
       subtype O_Tnode_Access is O_Tnode_Type (ON_Access_Type);
       Res : O_Tnode;
    begin
-      if Dtype /= O_Tnode_Null
-        and then Dtype.Kind = ON_Array_Sub_Type
-      then
-         --  Access to sub array are not allowed, use access to array.
-         raise Type_Error;
-      end if;
       Res := new O_Tnode_Access'(Kind => ON_Access_Type,
                                  Decl => O_Dnode_Null,
                                  Uncomplete => Dtype = O_Tnode_Null,
                                  Complete => True,
+                                 Constrained => True,
                                  D_Type => Dtype);
       return Res;
    end New_Access_Type;
 
-   procedure Finish_Access_Type (Atype : O_Tnode; Dtype : O_Tnode)
-   is
+   procedure Finish_Access_Type (Atype : O_Tnode; Dtype : O_Tnode) is
    begin
-      if Dtype.Kind = ON_Array_Sub_Type then
+      if Is_Subtype (Dtype) then
          --  Access to sub array are not allowed, use access to array.
          raise Type_Error;
       end if;
@@ -666,31 +761,44 @@ package body Ortho_Debug is
    is
       subtype O_Tnode_Array is O_Tnode_Type (ON_Array_Type);
    begin
-      Check_Constrained_Type (El_Type);
       Check_Complete_Type (El_Type);
       return new O_Tnode_Array'(Kind => ON_Array_Type,
                                 Decl => O_Dnode_Null,
                                 Uncomplete => False,
                                 Complete => True,
+                                Constrained => False, --  By definition
                                 El_Type => El_Type,
                                 Index_Type => Index_Type);
    end New_Array_Type;
 
-   function New_Constrained_Array_Type (Atype : O_Tnode; Length : O_Cnode)
-     return O_Tnode
+   function New_Array_Subtype
+     (Atype : O_Tnode; El_Type : O_Tnode; Length : O_Cnode) return O_Tnode
    is
-      subtype O_Tnode_Sub_Array is O_Tnode_Type (ON_Array_Sub_Type);
+      subtype O_Tnode_Sub_Array is O_Tnode_Type (ON_Array_Subtype);
    begin
+      --  Can only constraint an array type.
       if Atype.Kind /= ON_Array_Type then
          raise Type_Error;
       end if;
-      return new O_Tnode_Sub_Array'(Kind => ON_Array_Sub_Type,
+
+      --  The element must either be ATYPE element or a constrained subtype
+      --  of it.
+      if El_Type /= Atype.El_Type then
+         if Get_Base_Type (El_Type) /= Atype.El_Type then
+            raise Type_Error;
+         end if;
+      end if;
+      Check_Constrained_Type (El_Type);
+
+      return new O_Tnode_Sub_Array'(Kind => ON_Array_Subtype,
                                     Decl => O_Dnode_Null,
                                     Uncomplete => False,
                                     Complete => True,
-                                    Base_Type => Atype,
+                                    Constrained => True,
+                                    Arr_Base => Atype,
+                                    Arr_El_Type => El_Type,
                                     Length => Length);
-   end New_Constrained_Array_Type;
+   end New_Array_Subtype;
 
    function New_Unsigned_Type (Size : Natural) return O_Tnode
    is
@@ -700,6 +808,7 @@ package body Ortho_Debug is
                                    Decl => O_Dnode_Null,
                                    Uncomplete => False,
                                    Complete => True,
+                                   Constrained => True,
                                    Int_Size => Size);
    end New_Unsigned_Type;
 
@@ -711,6 +820,7 @@ package body Ortho_Debug is
                                  Decl => O_Dnode_Null,
                                  Uncomplete => False,
                                  Complete => True,
+                                 Constrained => True,
                                  Int_Size => Size);
    end New_Signed_Type;
 
@@ -721,7 +831,8 @@ package body Ortho_Debug is
       return new O_Tnode_Float'(Kind => ON_Float_Type,
                                 Decl => O_Dnode_Null,
                                 Uncomplete => False,
-                                Complete => True);
+                                Complete => True,
+                                Constrained => True);
    end New_Float_Type;
 
    procedure New_Boolean_Type (Res : out O_Tnode;
@@ -737,6 +848,7 @@ package body Ortho_Debug is
                                   Decl => O_Dnode_Null,
                                   Uncomplete => False,
                                   Complete => True,
+                                  Constrained => True,
                                   True_N => O_Cnode_Null,
                                   False_N => O_Cnode_Null);
       True_E := new O_Cnode_Boolean_Lit'(Kind => OC_Boolean_Lit,
@@ -763,6 +875,7 @@ package body Ortho_Debug is
                                Decl => O_Dnode_Null,
                                Uncomplete => False,
                                Complete => False,
+                               Constrained => True,
                                Nbr => 0,
                                Literals => O_Cnode_Null);
       List.Res := Res;
@@ -798,33 +911,34 @@ package body Ortho_Debug is
       Res.Complete := True;
    end Finish_Enum_Type;
 
-   function Get_Base_Type (Atype : O_Tnode) return O_Tnode
-   is
+   function Get_Array_El_Type (Atype : O_Tnode) return O_Tnode is
    begin
       case Atype.Kind is
-         when ON_Array_Sub_Type =>
-            return Atype.Base_Type;
+         when ON_Array_Subtype =>
+            return Atype.Arr_El_Type;
+         when ON_Array_Type =>
+            return Atype.El_Type;
          when others =>
-            return Atype;
+               raise Syntax_Error;
       end case;
-   end Get_Base_Type;
+   end Get_Array_El_Type;
 
    procedure Start_Record_Aggr (List : out O_Record_Aggr_List; Atype : O_Tnode)
    is
-      subtype O_Cnode_Aggregate is O_Cnode_Type (OC_Aggregate);
+      subtype O_Cnode_Aggregate is O_Cnode_Type (OC_Record_Aggregate);
       Res : O_Cnode;
    begin
       if Atype.Kind /= ON_Record_Type then
          raise Type_Error;
       end if;
       Check_Complete_Type (Atype);
-      Res := new O_Cnode_Aggregate'(Kind => OC_Aggregate,
+      Res := new O_Cnode_Aggregate'(Kind => OC_Record_Aggregate,
                                     Ctype => Atype,
                                     Ref => False,
-                                    Aggr_Els => null);
+                                    Rec_Els => null);
       List.Res := Res;
       List.Last := null;
-      List.Field := Atype.Elements;
+      List.Field := Atype.Rec_Elements;
    end Start_Record_Aggr;
 
    procedure New_Record_Aggr_El (List : in out O_Record_Aggr_List;
@@ -844,7 +958,7 @@ package body Ortho_Debug is
                                      Aggr_Value => Value,
                                      Aggr_Next => null);
       if List.Last = null then
-         List.Res.Aggr_Els := El;
+         List.Res.Rec_Els := El;
       else
          List.Last.Aggr_Next := El;
       end if;
@@ -863,22 +977,31 @@ package body Ortho_Debug is
       Res := List.Res;
    end Finish_Record_Aggr;
 
-   procedure Start_Array_Aggr (List : out O_Array_Aggr_List; Atype : O_Tnode)
+   procedure Start_Array_Aggr
+     (List : out O_Array_Aggr_List; Atype : O_Tnode; Len : Unsigned_32)
    is
-      subtype O_Cnode_Aggregate is O_Cnode_Type (OC_Aggregate);
+      subtype O_Cnode_Aggregate is O_Cnode_Type (OC_Array_Aggregate);
       Res : O_Cnode;
    begin
-      if Atype.Kind /= ON_Array_Sub_Type then
-         raise Type_Error;
-      end if;
+      case Atype.Kind is
+         when ON_Array_Subtype =>
+            if Atype.Length.U_Val /= Unsigned_64 (Len) then
+               raise Type_Error;
+            end if;
+         when ON_Array_Type =>
+            null;
+         when others =>
+            raise Type_Error;
+      end case;
+      List.El_Type := Get_Array_El_Type (Atype);
       Check_Complete_Type (Atype);
-      Res := new O_Cnode_Aggregate'(Kind => OC_Aggregate,
+      Res := new O_Cnode_Aggregate'(Kind => OC_Array_Aggregate,
                                     Ctype => Atype,
                                     Ref => False,
-                                    Aggr_Els => null);
+                                    Arr_Len => Len,
+                                    Arr_Els => null);
       List.Res := Res;
       List.Last := null;
-      List.El_Type := Atype.Base_Type.El_Type;
    end Start_Array_Aggr;
 
    procedure New_Array_Aggr_El (List : in out O_Array_Aggr_List;
@@ -894,7 +1017,7 @@ package body Ortho_Debug is
                                      Aggr_Value => Value,
                                      Aggr_Next => null);
       if List.Last = null then
-         List.Res.Aggr_Els := El;
+         List.Res.Arr_Els := El;
       else
          List.Last.Aggr_Next := El;
       end if;
@@ -969,11 +1092,19 @@ package body Ortho_Debug is
                                 return O_Lnode
    is
       subtype O_Lnode_Indexed is O_Lnode_Type (OL_Indexed_Element);
+      El_Type : O_Tnode;
       Res : O_Lnode;
    begin
+      if Arr.Rtype.Kind not in ON_Array_Kinds then
+         --  Can only index an array.
+         raise Type_Error;
+      end if;
+      --  The element type of ARR must be constrained.
+      El_Type := Get_Array_El_Type (Arr.Rtype);
+      Check_Constrained_Type (El_Type);
       Check_Ref (Arr);
       Res := new O_Lnode_Indexed'(Kind => OL_Indexed_Element,
-                                  Rtype => Get_Base_Type (Arr.Rtype).El_Type,
+                                  Rtype => El_Type,
                                   Ref => False,
                                   Array_Base => Arr,
                                   Index => Index);
@@ -986,9 +1117,14 @@ package body Ortho_Debug is
       subtype O_Lnode_Slice is O_Lnode_Type (OL_Slice);
       Res : O_Lnode;
    begin
-      if Res_Type.Kind /= ON_Array_Type
-        and then Res_Type.Kind /= ON_Array_Sub_Type
-      then
+      if Arr.Rtype.Kind not in ON_Array_Kinds then
+         --  Can only slice an array.
+         raise Type_Error;
+      end if;
+      --  The element type of ARR must be constrained.
+      Check_Constrained_Type (Get_Array_El_Type (Arr.Rtype));
+      --  The result is an array.
+      if Res_Type.Kind not in ON_Array_Kinds then
          raise Type_Error;
       end if;
       Check_Ref (Arr);
@@ -1007,11 +1143,14 @@ package body Ortho_Debug is
    is
       subtype O_Lnode_Selected_Element is O_Lnode_Type (OL_Selected_Element);
    begin
-      if Rec.Rtype.Kind /= ON_Record_Type
-        and then Rec.Rtype.Kind /= ON_Union_Type
-      then
-         raise Type_Error;
-      end if;
+      case Rec.Rtype.Kind is
+         when ON_Record_Type
+            | ON_Record_Subtype
+            | ON_Union_Type =>
+            null;
+         when others =>
+            raise Type_Error;
+      end case;
       if Rec.Rtype /= El.Parent then
          raise Type_Error;
       end if;
@@ -1065,16 +1204,18 @@ package body Ortho_Debug is
       T : constant Boolean := True;
       F : constant Boolean := False;
       Conv_Allowed : constant Conv_Array :=
-        (ON_Boolean_Type =>  (T, F, T, T, F, F, F, F, F, F),
-         ON_Enum_Type =>     (F, F, T, T, F, F, F, F, F, F),
-         ON_Unsigned_Type => (T, T, T, T, F, F, F, F, F, F),
-         ON_Signed_Type =>   (T, T, T, T, T, F, F, F, F, F),
-         ON_Float_Type =>    (F, F, F, T, T, F, F, F, F, F),
-         ON_Array_Type =>    (F, F, F, F, F, F, T, F, F, F),
-         ON_Array_Sub_Type =>(F, F, F, F, F, T, T, F, F, F),
-         ON_Record_Type =>   (F, F, F, F, F, F, F, F, F, F),
-         ON_Union_Type =>    (F, F, F, F, F, F, F, F, F, F),
-         ON_Access_Type =>   (F, F, F, F, F, F, F, F, F, T));
+        --                     B  E  U  S  F  A  a  R  r  U  A
+        (ON_Boolean_Type =>   (T, F, T, T, F, F, F, F, F, F, F),
+         ON_Enum_Type =>      (F, F, T, T, F, F, F, F, F, F, F),
+         ON_Unsigned_Type =>  (T, T, T, T, F, F, F, F, F, F, F),
+         ON_Signed_Type =>    (T, T, T, T, T, F, F, F, F, F, F),
+         ON_Float_Type =>     (F, F, F, T, T, F, F, F, F, F, F),
+         ON_Array_Type =>     (F, F, F, F, F, F, F, F, F, F, F),
+         ON_Array_Subtype =>  (F, F, F, F, F, F, F, F, F, F, F),
+         ON_Record_Type =>    (F, F, F, F, F, F, F, F, F, F, F),
+         ON_Record_Subtype => (F, F, F, F, F, F, F, F, F, F, F),
+         ON_Union_Type =>     (F, F, F, F, F, F, F, F, F, F, F),
+         ON_Access_Type =>    (F, F, F, F, F, F, F, F, F, F, T));
    begin
       if Source = Target then
          return True;
@@ -1085,19 +1226,33 @@ package body Ortho_Debug is
 
    function New_Convert_Ov (Val : O_Enode; Rtype : O_Tnode) return O_Enode
    is
-      subtype O_Enode_Convert is O_Enode_Type (OE_Convert_Ov);
       Res : O_Enode;
    begin
       Check_Ref (Val);
       if not Check_Conv (Val.Rtype.Kind, Rtype.Kind) then
          raise Type_Error;
       end if;
-      Res := new O_Enode_Convert'(Kind => OE_Convert_Ov,
-                                  Rtype => Rtype,
-                                  Ref => False,
-                                  Conv => Val);
+      Res := new O_Enode_Type'(Kind => OE_Convert_Ov,
+                               Rtype => Rtype,
+                               Ref => False,
+                               Conv => Val);
       return Res;
    end New_Convert_Ov;
+
+   function New_Convert (Val : O_Enode; Rtype : O_Tnode) return O_Enode
+   is
+      Res : O_Enode;
+   begin
+      Check_Ref (Val);
+      if not Check_Conv (Val.Rtype.Kind, Rtype.Kind) then
+         raise Type_Error;
+      end if;
+      Res := new O_Enode_Type'(Kind => OE_Convert,
+                               Rtype => Rtype,
+                               Ref => False,
+                               Conv => Val);
+      return Res;
+   end New_Convert;
 
    function New_Unchecked_Address (Lvalue : O_Lnode; Atype : O_Tnode)
      return O_Enode
@@ -1124,11 +1279,7 @@ package body Ortho_Debug is
          --  An address is of type access.
          raise Type_Error;
       end if;
-      if Get_Base_Type (Lvalue.Rtype) /= Get_Base_Type (Atype.D_Type) then
-         if not Disable_Checks then
-            raise Type_Error;
-         end if;
-      end if;
+      Check_Type (Get_Base_Type (Lvalue.Rtype), Get_Base_Type (Atype.D_Type));
       return new O_Enode_Address'(Kind => OE_Address,
                                   Rtype => Atype,
                                   Ref => False,
@@ -1200,8 +1351,9 @@ package body Ortho_Debug is
             return;
          when ON_Array_Type
            | ON_Record_Type
+           | ON_Record_Subtype
            | ON_Union_Type
-           | ON_Array_Sub_Type =>
+           | ON_Array_Subtype =>
             raise Type_Error;
       end case;
    end Check_Not_Composite;
@@ -1317,6 +1469,7 @@ package body Ortho_Debug is
       subtype O_Dnode_Const is O_Dnode_Type (ON_Const_Decl);
    begin
       Check_Complete_Type (Atype);
+      Check_Constrained_Type (Atype);
       if Storage = O_Storage_Local then
          --  A constant cannot be local.
          raise Syntax_Error;
@@ -1390,6 +1543,7 @@ package body Ortho_Debug is
       subtype O_Dnode_Var is O_Dnode_Type (ON_Var_Decl);
    begin
       Check_Complete_Type (Atype);
+      Check_Constrained_Type (Atype);
       Check_Object_Storage (Storage);
       Res := new O_Dnode_Var'(Kind => ON_Var_Decl,
                               Name => Ident,

@@ -1,26 +1,26 @@
 --  Naive values for interpreted simulation
 --  Copyright (C) 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with System;
 with Ada.Unchecked_Conversion;
-with Ada.Text_IO;
 with GNAT.Debug_Utilities;
+
+with Simple_IO;
 with Name_Table;
+with Vhdl.Utils; use Vhdl.Utils;
 with Simul.Debugger; use Simul.Debugger;
 
 package body Simul.Environments is
@@ -143,7 +143,7 @@ package body Simul.Environments is
                raise Constraint_Error;
             end if;
          when Iir_Value_Array =>
-            --  LRM93 §7.2.2
+            --  LRM93 7.2.2
             --  For discrete array types, the relation < (less than) is defined
             --  such as the left operand is less than the right operand if
             --  and only if:
@@ -206,9 +206,9 @@ package body Simul.Environments is
    begin
       Cmp := Compare_Value (Arange.Left, Arange.Right);
       case Arange.Dir is
-         when Iir_To =>
+         when Dir_To =>
             return Cmp = Greater;
-         when Iir_Downto =>
+         when Dir_Downto =>
             return Cmp = Less;
       end case;
    end Is_Null_Range;
@@ -461,22 +461,20 @@ package body Simul.Environments is
                 (Kind => Iir_Value_Access, Val_Access => Val)));
    end Create_Access_Value;
 
-   function Create_Range_Value
-     (Left, Right : Iir_Value_Literal_Acc;
-      Dir : Iir_Direction;
-      Length : Iir_Index32)
-     return Iir_Value_Literal_Acc
+   function Create_Range_Value (Left, Right : Iir_Value_Literal_Acc;
+                                Dir : Direction_Type;
+                                Length : Iir_Index32)
+                               return Iir_Value_Literal_Acc
    is
       subtype Range_Value is Iir_Value_Literal (Iir_Value_Range);
       function Alloc is new Alloc_On_Pool_Addr (Range_Value);
    begin
-      return To_Iir_Value_Literal_Acc
-        (Alloc (Current_Pool,
-                (Kind => Iir_Value_Range,
-                 Left => Left,
-                 Right => Right,
-                 Dir => Dir,
-                 Length => Length)));
+      return To_Iir_Value_Literal_Acc (Alloc (Current_Pool,
+                                              (Kind => Iir_Value_Range,
+                                               Left => Left,
+                                               Right => Right,
+                                               Dir => Dir,
+                                               Length => Length)));
    end Create_Range_Value;
 
    function Create_File_Value (Val : Grt.Files.Ghdl_File_Index)
@@ -491,19 +489,18 @@ package body Simul.Environments is
    end Create_File_Value;
 
    --  Create a range_value of life LIFE.
-   function Create_Range_Value
-     (Left, Right : Iir_Value_Literal_Acc;
-      Dir : Iir_Direction)
-      return Iir_Value_Literal_Acc
+   function Create_Range_Value (Left, Right : Iir_Value_Literal_Acc;
+                                Dir : Direction_Type)
+                               return Iir_Value_Literal_Acc
    is
       Low, High : Iir_Value_Literal_Acc;
       Len : Iir_Index32;
    begin
       case Dir is
-         when Iir_To =>
+         when Dir_To =>
             Low := Left;
             High := Right;
-         when Iir_Downto =>
+         when Dir_Downto =>
             Low := Right;
             High := Left;
       end case;
@@ -815,17 +812,15 @@ package body Simul.Environments is
       end case;
    end Get_Enum_Pos;
 
-   procedure Put_Indent (Indent : Natural)
-   is
-      use Ada.Text_IO;
+   procedure Put_Indent (Indent : Natural) is
    begin
-      Put ((1 .. 2 * Indent => ' '));
+      Simple_IO.Put ((1 .. 2 * Indent => ' '));
    end Put_Indent;
 
    procedure Disp_Value_Tab (Value: Iir_Value_Literal_Acc;
                              Indent : Natural)
    is
-      use Ada.Text_IO;
+      use Simple_IO;
       use GNAT.Debug_Utilities;
    begin
       Put_Indent (Indent);
@@ -892,7 +887,7 @@ package body Simul.Environments is
             Put_Line ("range:");
             Put_Indent (Indent);
             Put (" direction: ");
-            Put (Iir_Direction'Image (Value.Dir));
+            Put (Direction_Type'Image (Value.Dir));
             Put (", length:");
             Put_Line (Iir_Index32'Image (Value.Length));
             if Value.Left /= null then
@@ -976,7 +971,7 @@ package body Simul.Environments is
                                    Dim: Iir_Index32;
                                    Off : in out Iir_Index32)
    is
-      use Ada.Text_IO;
+      use Simple_IO;
       type Last_Enum_Type is (None, Char, Identifier);
       Last_Enum: Last_Enum_Type;
       El_Type: Iir;
@@ -1056,7 +1051,7 @@ package body Simul.Environments is
    procedure Disp_Iir_Value_Record
      (Value: Iir_Value_Literal_Acc; A_Type: Iir)
    is
-      use Ada.Text_IO;
+      use Simple_IO;
       List : constant Iir_Flist :=
         Get_Elements_Declaration_List (Get_Base_Type (A_Type));
       El : Iir_Element_Declaration;
@@ -1081,11 +1076,12 @@ package body Simul.Environments is
    begin
       Id := Get_Identifier
         (Get_Nth_Element (Get_Enumeration_Literal_List (Bt), Pos));
-      Ada.Text_IO.Put (Name_Table.Image (Id));
+      Simple_IO.Put (Name_Table.Image (Id));
    end Disp_Iir_Value_Enum;
 
-   procedure Disp_Iir_Value (Value: Iir_Value_Literal_Acc; A_Type: Iir) is
-      use Ada.Text_IO;
+   procedure Disp_Iir_Value (Value: Iir_Value_Literal_Acc; A_Type: Iir)
+   is
+      use Simple_IO;
    begin
       if Value = null then
          Put ("!NULL!");

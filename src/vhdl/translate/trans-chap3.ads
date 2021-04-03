@@ -1,29 +1,27 @@
 --  Iir to ortho translator.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 package Trans.Chap3 is
    --  Translate the subtype of an object, since an object can define
    --  a subtype.
    --  This can be done only for a declaration.
    --  DECL must have an identifier and a type.
-   procedure Translate_Object_Subtype
+   procedure Translate_Object_Subtype_Indication
      (Decl : Iir; With_Vars : Boolean := True);
-   procedure Elab_Object_Subtype (Def : Iir);
+   procedure Elab_Object_Subtype_Indication (Decl : Iir);
 
    --  Translate the subtype of a literal.
    --  This can be done not at declaration time, ie no variables are created
@@ -56,10 +54,8 @@ package Trans.Chap3 is
    procedure Translate_Protected_Type_Body_Subprograms_Spec (Bod : Iir);
    procedure Translate_Protected_Type_Body_Subprograms_Body (Bod : Iir);
 
-   --  DEF derives (using the Ada meaning) of PARENT_TYPE, ie DEF has new
-   --  constraints on PARENT_TYPE.
    procedure Translate_Subtype_Definition
-     (Def : Iir; Parent_Type : Iir; With_Vars : Boolean := True);
+     (Def : Iir; With_Vars : Boolean := True);
 
    --  Translate a proper subtype indication.
    procedure Translate_Subtype_Indication (Def : Iir; With_Vars : Boolean);
@@ -133,6 +129,8 @@ package Trans.Chap3 is
    --  set the bounds of it (from ARR), and return it.
    --  Otherwise, return a null mnode.
    --  Used to build a var for a subelement of ARR.
+   --  This is used by foreach_non_composite to factorize fat-pointer
+   --  building.
    function Create_Maybe_Fat_Array_Element (Arr : Mnode; Arr_Type : Iir)
                                            return Mnode;
 
@@ -149,12 +147,14 @@ package Trans.Chap3 is
                        return Mnode;
 
    --  Index array ARR of type ATYPE with INDEX.
+   --  Return the base.
    function Index_Array (Arr : Mnode; Atype : Iir; Index : O_Enode)
                         return Mnode;
 
    --  Same for for slicing.
-   function Slice_Base (Base : Mnode; Atype : Iir; Index : O_Enode)
-                       return Mnode;
+   function Slice_Base
+     (Base : Mnode; Atype : Iir; Index : O_Enode; Stride : O_Enode)
+     return Mnode;
 
    --  Get the length of the array (the number of elements).
    function Get_Array_Length (Arr : Mnode; Atype : Iir) return O_Enode;
@@ -163,12 +163,24 @@ package Trans.Chap3 is
    --  automatically stabilized if necessary.
    function Get_Bounds_Length (Bounds : Mnode; Atype : Iir) return O_Enode;
 
+   --  Return the number of elements for statically bounded array ATYPE.
+   function Get_Static_Array_Length (Atype : Iir) return Int64;
+
    --  Get the number of elements in array ATYPE.
    function Get_Array_Type_Length (Atype : Iir) return O_Enode;
+
+   --  Return the allocation kind used for layout variable of type INFO.
+   function Get_Composite_Type_Layout_Alloc (Info : Type_Info_Acc)
+                                             return Allocation_Kind;
 
    --  Get the base of array or record OBJ.  If OBJ is already constrained,
    --  return it.
    function Get_Composite_Base (Obj : Mnode) return Mnode;
+
+   --  The base returned by Get_Composite_Base is always the least
+   --  constrained array base.  But the subtype may be more constrained than
+   --  the base.  In that case the base must be converted to the subtype.
+   function Convert_Array_Base (Arr : Mnode) return Mnode;
 
    --  Get the base of array or record OBJ; but if OBJ is already constrained,
    --  convert it to the base of an unbounded object (so this unboxes the
@@ -210,6 +222,9 @@ package Trans.Chap3 is
    --  Return bounds from layout B.
    function Layout_To_Bounds (B : Mnode) return Mnode;
 
+   function Layout_To_Size (Layout : Mnode; Kind : Object_Kind_Type)
+                           return O_Lnode;
+
    --  From a record layout B, return the layout of element EL.  EL must be
    --  an unbounded element.
    function Record_Layout_To_Element_Layout (B : Mnode; El : Iir) return Mnode;
@@ -224,11 +239,11 @@ package Trans.Chap3 is
 
    --  From an unbounded array bounds B, get the bounds for the (unbounded)
    --  element.
-   function Array_Bounds_To_Element_Bounds (B : Mnode; Atype : Iir)
+   function Array_Bounds_To_Element_Bounds (B : Mnode; Arr_Type : Iir)
                                            return Mnode;
 
    --  From unbounded array bounds B, get the layout of the unbounded element.
-   function Array_Bounds_To_Element_Layout (B : Mnode; Atype : Iir)
+   function Array_Bounds_To_Element_Layout (B : Mnode; Arr_Type : Iir)
                                            return Mnode;
 
    --  Deallocate OBJ.
@@ -285,13 +300,17 @@ package Trans.Chap3 is
 
    --  Used for alias: create the vars for the subtype of the name (when the
    --  name is a slice).  The identifier prefix must have been set.
+   --
+   --  Slices are special because they create new bounds variables.  These
+   --  variables are expected to be transcient.  But in some cases (like
+   --  aliases), they have a longer life.
    procedure Translate_Array_Subtype (Arr_Type : Iir);
    procedure Elab_Array_Subtype (Arr_Type : Iir);
 
    --  Create the bounds for SUB_TYPE.
    --  SUB_TYPE is expected to be a non-static, anonymous array or record
    --  subtype.
-   procedure Create_Composite_Subtype (Sub_Type : Iir);
+   procedure Create_Composite_Subtype (Sub_Type : Iir; Elab : Boolean := True);
 
    --  Return TRUE if VALUE is not is the range specified by ATYPE.
    --  VALUE must be stable.
@@ -317,15 +336,15 @@ package Trans.Chap3 is
      (Value : O_Enode; Expr : Iir; Atype : Iir) return O_Enode;
 
    --  Return True iff all indexes of L_TYPE and R_TYPE have the same
-   --  length.  They must be locally static.
-   function Locally_Array_Match (L_Type, R_Type : Iir) return Boolean;
+   --  length.  They must be constrained.
+   function Locally_Array_Match (L_Type, R_Type : Iir) return Tri_State_Type;
 
-   --  Check bounds length of L match bounds length of R.
-   --  If L_TYPE (resp. R_TYPE) is not a thin array, then L_NODE
+   --  Check bounds of L match bounds of R.
+   --  If L_TYPE (resp. R_TYPE) is not a thin composite type, then L_NODE
    --    (resp. R_NODE) are not used (and may be Mnode_Null).
-   --  If L_TYPE (resp. T_TYPE) is a fat array, then L_NODE (resp. R_NODE)
-   --    must designate the array.
-   procedure Check_Array_Match
+   --  If L_TYPE (resp. T_TYPE) is a fat type, then L_NODE (resp. R_NODE)
+   --    must designate the object.
+   procedure Check_Composite_Match
      (L_Type : Iir; L_Node : Mnode; R_Type : Iir; R_Node : Mnode; Loc : Iir);
 
    --  Create a subtype range to be stored into RES from length LENGTH, which

@@ -1,26 +1,25 @@
 --  Analysis for translation.
 --  Copyright (C) 2009 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
-with Iirs_Utils; use Iirs_Utils;
-with Iirs_Walk; use Iirs_Walk;
-with Disp_Vhdl;
-with Ada.Text_IO;
 with Errorout;
+with Simple_IO;
+with Vhdl.Utils; use Vhdl.Utils;
+with Vhdl.Nodes_Walk; use Vhdl.Nodes_Walk;
+with Vhdl.Prints;
+with Vhdl.Errors; use Vhdl.Errors;
 
 package body Trans_Analyzes is
    Driver_List : Iir_List;
@@ -85,6 +84,9 @@ package body Trans_Analyzes is
                     (Get_Target (Stmt), Extract_Driver_Target'Access);
                end if;
             end;
+         when Iir_Kind_Signal_Force_Assignment_Statement
+            | Iir_Kind_Signal_Release_Assignment_Statement =>
+            null;
          when Iir_Kind_Conditional_Signal_Assignment_Statement =>
             declare
                Cond_Wf : Iir;
@@ -169,7 +171,8 @@ package body Trans_Analyzes is
            | Iir_Kind_For_Loop_Statement
            | Iir_Kind_While_Loop_Statement
            | Iir_Kind_Case_Statement
-           | Iir_Kind_If_Statement =>
+           | Iir_Kind_If_Statement
+           | Iir_Kind_Break_Statement =>
             null;
       end case;
       return Walk_Continue;
@@ -229,7 +232,7 @@ package body Trans_Analyzes is
 
    procedure Dump_Drivers (Proc : Iir; List : Iir_List)
    is
-      use Ada.Text_IO;
+      use Simple_IO;
       use Errorout;
       El : Iir;
       It : List_Iterator;
@@ -246,7 +249,7 @@ package body Trans_Analyzes is
          else
             Put ("   ");
          end if;
-         Disp_Vhdl.Disp_Vhdl (El);
+         Vhdl.Prints.Disp_Vhdl (El);
          New_Line;
          Next (It);
       end loop;

@@ -1,20 +1,18 @@
 --  Display the code from the ortho debug tree.
 --  Copyright (C) 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 package body Ortho_Debug.Disp is
    Disp_All_Types : constant Boolean := False;
@@ -366,6 +364,8 @@ package body Ortho_Debug.Disp is
             return "function call";
          when OE_Convert_Ov =>
             return "convert_ov";
+         when OE_Convert =>
+            return "convert";
          when OE_Address =>
             return "address";
          when OE_Unchecked_Address =>
@@ -570,6 +570,11 @@ package body Ortho_Debug.Disp is
             Put ("'sizeof (");
             Disp_Tnode_Name (C.S_Type);
             Put (")");
+         when OC_Record_Sizeof_Lit =>
+            Disp_Tnode_Name (C.Ctype);
+            Put ("'record_sizeof (");
+            Disp_Tnode_Name (C.S_Type);
+            Put (")");
          when OC_Alignof_Lit =>
             Disp_Tnode_Name (C.Ctype);
             Put ("'alignof (");
@@ -582,36 +587,48 @@ package body Ortho_Debug.Disp is
             Put (".");
             Disp_Ident (C.Off_Field.Ident);
             Put (")");
-         when OC_Aggregate =>
+         when OC_Array_Aggregate =>
+            declare
+               El : O_Cnode;
+               El_Type : O_Tnode;
+            begin
+               El := C.Arr_Els;
+               El_Type := Get_Array_El_Type (C.Ctype);
+               Put ('[');
+               Put_Trim (Unsigned_32'Image (C.Arr_Len));
+               Put (']');
+               Put ('{');
+               if El /= null then
+                  loop
+                     Set_Mark;
+                     Disp_Cnode (El.Aggr_Value, El_Type);
+                     El := El.Aggr_Next;
+                     exit when El = null;
+                     Put (", ");
+                  end loop;
+               end if;
+               Put ('}');
+            end;
+         when OC_Record_Aggregate =>
             declare
                El : O_Cnode;
                El_Type : O_Tnode;
                Field : O_Fnode;
             begin
                Put ('{');
-               El := C.Aggr_Els;
-               case C.Ctype.Kind is
-                  when ON_Record_Type =>
-                     Field := C.Ctype.Elements;
-                     El_Type := Field.Ftype;
-                  when ON_Array_Sub_Type =>
-                     Field := null;
-                     El_Type := C.Ctype.Base_Type.El_Type;
-                  when others =>
-                     raise Program_Error;
-               end case;
+               El := C.Rec_Els;
+               pragma Assert (C.Ctype.Kind = ON_Record_Type);
+               Field := C.Ctype.Rec_Elements;
                if El /= null then
                   loop
                      Set_Mark;
-                     if Field /= null then
-                        if Disp_All_Types then
-                           Put ('.');
-                           Disp_Ident (Field.Ident);
-                           Put (" = ");
-                        end if;
-                        El_Type := Field.Ftype;
-                        Field := Field.Next;
+                     if Disp_All_Types then
+                        Put ('.');
+                        Disp_Ident (Field.Ident);
+                        Put (" = ");
                      end if;
+                     El_Type := Field.Ftype;
+                     Field := Field.Next;
                      Disp_Cnode (El.Aggr_Value, El_Type);
                      El := El.Aggr_Next;
                      exit when El = null;
@@ -735,6 +752,11 @@ package body Ortho_Debug.Disp is
             Disp_Lnode (E.Lvalue);
             Put (")");
          when OE_Convert_Ov =>
+            Disp_Tnode_Name (E.Rtype);
+            Put ("'conv# (");
+            Disp_Enode (E.Conv, O_Tnode_Null);
+            Put (')');
+         when OE_Convert =>
             Disp_Tnode_Name (E.Rtype);
             Put ("'conv (");
             Disp_Enode (E.Conv, O_Tnode_Null);
@@ -872,24 +894,41 @@ package body Ortho_Debug.Disp is
          when ON_Record_Type =>
             Put_Keyword ("record");
             New_Line;
-            Disp_Fnodes (Atype.Elements);
+            Disp_Fnodes (Atype.Rec_Elements);
             Put_Keyword ("end");
             Put (" ");
             Put_Keyword ("record");
+         when ON_Record_Subtype =>
+            Put_Keyword ("subrecord");
+            Put (" ");
+            Disp_Tnode_Name (Atype.Subrec_Base);
+            Put ("(");
+            Disp_Fnodes (Atype.Subrec_Elements);
+            Put (")");
          when ON_Union_Type =>
             Put_Keyword ("union");
             New_Line;
-            Disp_Fnodes (Atype.Elements);
+            Disp_Fnodes (Atype.Rec_Elements);
             Put_Keyword ("end");
             Put (" ");
             Put_Keyword ("union");
-         when ON_Array_Sub_Type =>
-            Put_Keyword ("subarray");
-            Put (" ");
-            Disp_Tnode_Name (Atype.Base_Type);
-            Put ("[");
-            Disp_Cnode (Atype.Length, Atype.Base_Type.Index_Type);
-            Put ("]");
+         when ON_Array_Subtype =>
+            declare
+               Base : constant O_Tnode := Atype.Arr_Base;
+            begin
+               Put_Keyword ("subarray");
+               Put (" ");
+               Disp_Tnode_Name (Base);
+               Put ("[");
+               Disp_Cnode (Atype.Length, Base.Index_Type);
+               Put ("]");
+               if Atype.Arr_El_Type /= Base.El_Type then
+                  Put (" ");
+                  Put_Keyword ("of");
+                  Put (" ");
+                  Disp_Tnode (Atype.Arr_El_Type, False);
+               end if;
+            end;
       end case;
    end Disp_Tnode;
 
@@ -1196,8 +1235,10 @@ package body Ortho_Debug.Disp is
 
    procedure Disp_Tnode_Decl (N : O_Tnode) is
    begin
-      Disp_Ident (N.Decl.Name);
-      Put (" : ");
+      if N.Decl /= O_Dnode_Null then
+         Disp_Ident (N.Decl.Name);
+         Put (" : ");
+      end if;
       Disp_Tnode (N, True);
    end Disp_Tnode_Decl;
 

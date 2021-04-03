@@ -1,55 +1,52 @@
 --  GHDL driver - JIT commands.
 --  Copyright (C) 2002, 2003, 2004, 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with System; use System;
 
 with Ada.Unchecked_Conversion;
 with Ada.Command_Line;
-with Ada.Text_IO;
+with GNAT.OS_Lib; use GNAT.OS_Lib;
 
 with Interfaces;
 with Interfaces.C;
 
 with Ghdlmain; use Ghdlmain;
 with Ghdllocal; use Ghdllocal;
-with GNAT.OS_Lib; use GNAT.OS_Lib;
+with Simple_IO; use Simple_IO;
 
+with Hash;
+with Interning;
+with Name_Table;
+with Flags;
+with Options;
+with Errorout; use Errorout;
+
+with Vhdl.Nodes; use Vhdl.Nodes;
+with Vhdl.Std_Package;
+with Vhdl.Errors; use Vhdl.Errors;
+with Vhdl.Canon;
+with Vhdl.Ieee.Std_Logic_1164;
 with Ortho_Jit;
 with Ortho_Nodes; use Ortho_Nodes;
 with Trans_Decls;
-with Iirs; use Iirs;
-with Std_Package;
-with Flags;
-with Errorout; use Errorout;
-with Libraries;
-with Canon;
-with Configuration;
 with Trans_Be;
 with Translation;
-with Ieee.Std_Logic_1164;
-
-with Lists;
-with Str_Table;
-with Nodes;
-with Files_Map;
-with Name_Table;
 
 with Grt.Main;
 with Grt.Modules;
+with Grt.Dynload; use Grt.Dynload;
 with Grt.Lib;
 with Grt.Processes;
 with Grt.Rtis;
@@ -80,29 +77,49 @@ package body Ghdlrun is
    --  Default elaboration mode is dynamic.
    Elab_Mode : constant Elab_Mode_Type := Elab_Dynamic;
 
+   type Shlib_Object_Type is record
+      Name : String_Access;
+      Handler : Address;
+   end record;
+
+   function Shlib_Build (Name : String) return Shlib_Object_Type
+   is
+      Name_Acc : constant String_Access := new String'(Name);
+      C_Name : constant String := Name & Nul;
+      Handler : Address;
+   begin
+      Handler :=
+        Grt_Dynload_Open (Grt.Types.To_Ghdl_C_String (C_Name'Address));
+      return (Name => Name_Acc,
+              Handler => Handler);
+   end Shlib_Build;
+
+   function Shlib_Equal (Obj : Shlib_Object_Type; Param : String)
+                        return Boolean is
+   begin
+      return Obj.Name.all = Param;
+   end Shlib_Equal;
+
+   package Shlib_Interning is new Interning
+     (Params_Type => String,
+      Object_Type => Shlib_Object_Type,
+      Hash => Hash.String_Hash,
+      Build => Shlib_Build,
+      Equal => Shlib_Equal);
+
    procedure Foreign_Hook (Decl : Iir;
                            Info : Translation.Foreign_Info_Type;
                            Ortho : O_Dnode);
 
    procedure Compile_Init (Analyze_Only : Boolean) is
    begin
-      if Analyze_Only then
-         Setup_Libraries (True);
-      else
-         Setup_Libraries (False);
-         Libraries.Load_Std_Library;
-         --  WORK library is not loaded.  FIXME: why ?
-      end if;
-
-      if Time_Resolution /= 'a' then
-         Std_Package.Set_Time_Resolution (Time_Resolution);
-      end if;
-
+      Common_Compile_Init (Analyze_Only);
       if Analyze_Only then
          return;
       end if;
 
       Translation.Foreign_Hook := Foreign_Hook'Access;
+      Shlib_Interning.Init;
 
       --  FIXME: add a flag to force unnesting.
       --  Translation.Flag_Unnest_Subprograms := True;
@@ -112,12 +129,12 @@ package body Ghdlrun is
 
       case Elab_Mode is
          when Elab_Static =>
-            Canon.Canon_Flag_Add_Labels := True;
-            Canon.Canon_Flag_Sequentials_Stmts := True;
-            Canon.Canon_Flag_Expressions := True;
-            Canon.Canon_Flag_All_Sensitivity := True;
+            Vhdl.Canon.Canon_Flag_Add_Labels := True;
+            Vhdl.Canon.Canon_Flag_Sequentials_Stmts := True;
+            Vhdl.Canon.Canon_Flag_Expressions := True;
+            Vhdl.Canon.Canon_Flag_All_Sensitivity := True;
          when Elab_Dynamic =>
-            Canon.Canon_Flag_Add_Labels := True;
+            Vhdl.Canon.Canon_Flag_Add_Labels := True;
       end case;
    end Compile_Init;
 
@@ -126,42 +143,28 @@ package body Ghdlrun is
    is
       Config : Iir;
    begin
-      Extract_Elab_Unit (Cmd_Name, Args, Opt_Arg);
-      if Sec_Name = null then
-         Sec_Name := new String'("");
-      end if;
-
-      Flags.Flag_Elaborate := True;
-
-      Config := Configuration.Configure (Prim_Name.all, Sec_Name.all);
-      if Config = Null_Iir then
-         raise Compilation_Error;
-      end if;
+      Common_Compile_Elab (Cmd_Name, Args, Opt_Arg, Config);
 
       if Time_Resolution = 'a' then
-         Time_Resolution := Std_Package.Get_Minimal_Time_Resolution;
+         Time_Resolution := Vhdl.Std_Package.Get_Minimal_Time_Resolution;
          if Time_Resolution = '?' then
             Time_Resolution := 'f';
          end if;
          if Flag_Verbose then
-            declare
-               use Ada.Text_IO;
-            begin
-               Put ("Time resolution is 1 ");
-               case Time_Resolution is
-                  when 'f' => Put ("fs");
-                  when 'p' => Put ("ps");
-                  when 'n' => Put ("ns");
-                  when 'u' => Put ("us");
-                  when 'm' => Put ("ms");
-                  when 's' => Put ("sec");
-                  when others => Put ("??");
-               end case;
-               New_Line;
-            end;
+            Put ("Time resolution is 1 ");
+            case Time_Resolution is
+               when 'f' => Put ("fs");
+               when 'p' => Put ("ps");
+               when 'n' => Put ("ns");
+               when 'u' => Put ("us");
+               when 'm' => Put ("ms");
+               when 's' => Put ("sec");
+               when others => Put ("??");
+            end case;
+            New_Line;
          end if;
       end if;
-      Std_Package.Set_Time_Resolution (Time_Resolution);
+      Vhdl.Std_Package.Set_Time_Resolution (Time_Resolution);
 
       --  Overwrite time resolution in flag string.
       Flags.Flag_String (5) := Time_Resolution;
@@ -174,7 +177,7 @@ package body Ghdlrun is
          when Elab_Static =>
             raise Program_Error;
          when Elab_Dynamic =>
-            Translation.Elaborate (Config, "", True);
+            Translation.Elaborate (Config, True);
       end case;
 
       if Errorout.Nbr_Errors > 0 then
@@ -222,7 +225,6 @@ package body Ghdlrun is
 
    procedure Ghdl_Elaborate is
    begin
-      --Ada.Text_IO.Put_Line (Standard_Error, "ghdl_elaborate");
       Elaborate_Proc.all;
    end Ghdl_Elaborate;
 
@@ -241,14 +243,43 @@ package body Ghdlrun is
             declare
                Name : constant String :=
                  Info.Subprg_Name (1 .. Info.Subprg_Len);
+               Lib : constant String :=
+                 Info.Lib_Name (1 .. Info.Lib_Len);
+               Shlib : Shlib_Object_Type;
             begin
-               Res := Foreigns.Find_Foreign (Name);
-               if Res /= Null_Address then
-                  Def (Ortho, Res);
+               if Info.Lib_Len = 0
+                 or else Lib = "null"
+               then
+                  Res := Foreigns.Find_Foreign (Name);
+                  if Res = Null_Address then
+                     Error_Msg_Sem
+                       (+Decl, "unknown foreign VHPIDIRECT '" & Name & "'");
+                     return;
+                  end if;
                else
-                  Error_Msg_Sem
-                    (+Decl, "unknown foreign VHPIDIRECT '" & Name & "'");
+                  Shlib := Shlib_Interning.Get (Lib);
+                  if Shlib.Handler = Null_Address then
+                     Error_Msg_Sem
+                       (+Decl, "cannot load VHPIDIRECT shared library '" &
+                          Lib & "'");
+                     return;
+                  end if;
+
+                  declare
+                     C_Name : constant String := Name & Nul;
+                  begin
+                     Res := Grt_Dynload_Symbol
+                       (Shlib.Handler,
+                        Grt.Types.To_Ghdl_C_String (C_Name'Address));
+                  end;
+                  if Res = Null_Address then
+                     Error_Msg_Sem
+                       (+Decl, "cannot resolve VHPIDIRECT symbol '"
+                          & Name & "'");
+                     return;
+                  end if;
                end if;
+               Def (Ortho, Res);
             end;
          when Foreign_Intrinsic =>
 
@@ -284,7 +315,7 @@ package body Ghdlrun is
       Decl : O_Dnode;
    begin
       if Flag_Verbose then
-         Ada.Text_IO.Put_Line ("Linking in memory");
+         Put_Line ("Linking in memory");
       end if;
 
       Def (Trans_Decls.Ghdl_Memcpy,
@@ -293,6 +324,9 @@ package body Ghdlrun is
            Grt.Lib.Ghdl_Bound_Check_Failed'Address);
       Def (Trans_Decls.Ghdl_Direction_Check_Failed,
            Grt.Lib.Ghdl_Direction_Check_Failed'Address);
+      Def (Trans_Decls.Ghdl_Integer_Index_Check_Failed,
+           Grt.Lib.Ghdl_Integer_Index_Check_Failed'Address);
+
       Def (Trans_Decls.Ghdl_Malloc0,
            Grt.Lib.Ghdl_Malloc0'Address);
       Def (Trans_Decls.Ghdl_Std_Ulogic_To_Boolean_Array,
@@ -306,6 +340,8 @@ package body Ghdlrun is
            Grt.Lib.Ghdl_Ieee_Assert_Failed'Address);
       Def (Trans_Decls.Ghdl_Psl_Assert_Failed,
            Grt.Lib.Ghdl_Psl_Assert_Failed'Address);
+      Def (Trans_Decls.Ghdl_Psl_Assume_Failed,
+           Grt.Lib.Ghdl_Psl_Assume_Failed'Address);
       Def (Trans_Decls.Ghdl_Psl_Cover,
            Grt.Lib.Ghdl_Psl_Cover'Address);
       Def (Trans_Decls.Ghdl_Psl_Cover_Failed,
@@ -425,6 +461,11 @@ package body Ghdlrun is
       Def (Trans_Decls.Ghdl_Signal_Direct_Assign,
            Grt.Signals.Ghdl_Signal_Direct_Assign'Address);
 
+      Def (Trans_Decls.Ghdl_Signal_Release_Eff,
+           Grt.Signals.Ghdl_Signal_Release_Eff'Address);
+      Def (Trans_Decls.Ghdl_Signal_Release_Drv,
+           Grt.Signals.Ghdl_Signal_Release_Drv'Address);
+
       Def (Trans_Decls.Ghdl_Create_Signal_B1,
            Grt.Signals.Ghdl_Create_Signal_B1'Address);
       Def (Trans_Decls.Ghdl_Signal_Init_B1,
@@ -439,6 +480,10 @@ package body Ghdlrun is
            Grt.Signals.Ghdl_Signal_Associate_B1'Address);
       Def (Trans_Decls.Ghdl_Signal_Add_Port_Driver_B1,
            Grt.Signals.Ghdl_Signal_Add_Port_Driver_B1'Address);
+      Def (Trans_Decls.Ghdl_Signal_Force_Drv_B1,
+           Grt.Signals.Ghdl_Signal_Force_Driving_B1'Address);
+      Def (Trans_Decls.Ghdl_Signal_Force_Eff_B1,
+           Grt.Signals.Ghdl_Signal_Force_Effective_B1'Address);
 
       Def (Trans_Decls.Ghdl_Create_Signal_E8,
            Grt.Signals.Ghdl_Create_Signal_E8'Address);
@@ -454,6 +499,10 @@ package body Ghdlrun is
            Grt.Signals.Ghdl_Signal_Associate_E8'Address);
       Def (Trans_Decls.Ghdl_Signal_Add_Port_Driver_E8,
            Grt.Signals.Ghdl_Signal_Add_Port_Driver_E8'Address);
+      Def (Trans_Decls.Ghdl_Signal_Force_Drv_E8,
+           Grt.Signals.Ghdl_Signal_Force_Driving_E8'Address);
+      Def (Trans_Decls.Ghdl_Signal_Force_Eff_E8,
+           Grt.Signals.Ghdl_Signal_Force_Effective_E8'Address);
 
       Def (Trans_Decls.Ghdl_Create_Signal_E32,
            Grt.Signals.Ghdl_Create_Signal_E32'Address);
@@ -469,6 +518,10 @@ package body Ghdlrun is
            Grt.Signals.Ghdl_Signal_Associate_E32'Address);
       Def (Trans_Decls.Ghdl_Signal_Add_Port_Driver_E32,
            Grt.Signals.Ghdl_Signal_Add_Port_Driver_E32'Address);
+      Def (Trans_Decls.Ghdl_Signal_Force_Drv_E32,
+           Grt.Signals.Ghdl_Signal_Force_Driving_E32'Address);
+      Def (Trans_Decls.Ghdl_Signal_Force_Eff_E32,
+           Grt.Signals.Ghdl_Signal_Force_Effective_E32'Address);
 
       Def (Trans_Decls.Ghdl_Create_Signal_I32,
            Grt.Signals.Ghdl_Create_Signal_I32'Address);
@@ -484,6 +537,10 @@ package body Ghdlrun is
            Grt.Signals.Ghdl_Signal_Associate_I32'Address);
       Def (Trans_Decls.Ghdl_Signal_Add_Port_Driver_I32,
            Grt.Signals.Ghdl_Signal_Add_Port_Driver_I32'Address);
+      Def (Trans_Decls.Ghdl_Signal_Force_Drv_I32,
+           Grt.Signals.Ghdl_Signal_Force_Driving_I32'Address);
+      Def (Trans_Decls.Ghdl_Signal_Force_Eff_I32,
+           Grt.Signals.Ghdl_Signal_Force_Effective_I32'Address);
 
       Def (Trans_Decls.Ghdl_Create_Signal_I64,
            Grt.Signals.Ghdl_Create_Signal_I64'Address);
@@ -499,6 +556,10 @@ package body Ghdlrun is
            Grt.Signals.Ghdl_Signal_Associate_I64'Address);
       Def (Trans_Decls.Ghdl_Signal_Add_Port_Driver_I64,
            Grt.Signals.Ghdl_Signal_Add_Port_Driver_I64'Address);
+      Def (Trans_Decls.Ghdl_Signal_Force_Drv_I64,
+           Grt.Signals.Ghdl_Signal_Force_Driving_I64'Address);
+      Def (Trans_Decls.Ghdl_Signal_Force_Eff_I64,
+           Grt.Signals.Ghdl_Signal_Force_Effective_I64'Address);
 
       Def (Trans_Decls.Ghdl_Create_Signal_F64,
            Grt.Signals.Ghdl_Create_Signal_F64'Address);
@@ -514,6 +575,10 @@ package body Ghdlrun is
            Grt.Signals.Ghdl_Signal_Associate_F64'Address);
       Def (Trans_Decls.Ghdl_Signal_Add_Port_Driver_F64,
            Grt.Signals.Ghdl_Signal_Add_Port_Driver_F64'Address);
+      Def (Trans_Decls.Ghdl_Signal_Force_Drv_F64,
+           Grt.Signals.Ghdl_Signal_Force_Driving_F64'Address);
+      Def (Trans_Decls.Ghdl_Signal_Force_Eff_F64,
+           Grt.Signals.Ghdl_Signal_Force_Effective_F64'Address);
 
       Def (Trans_Decls.Ghdl_Signal_Attribute_Register_Prefix,
            Grt.Signals.Ghdl_Signal_Attribute_Register_Prefix'Address);
@@ -675,9 +740,9 @@ package body Ghdlrun is
         Ortho_Jit.Get_Address (Trans_Decls.Std_Standard_Boolean_Rti);
       Grtlink.Std_Standard_Bit_RTI_Ptr :=
         Ortho_Jit.Get_Address (Trans_Decls.Std_Standard_Bit_Rti);
-      if Ieee.Std_Logic_1164.Resolved /= Null_Iir then
+      if Vhdl.Ieee.Std_Logic_1164.Resolved /= Null_Iir then
          Decl := Translation.Get_Resolv_Ortho_Decl
-           (Ieee.Std_Logic_1164.Resolved);
+           (Vhdl.Ieee.Std_Logic_1164.Resolved);
          if Decl /= O_Dnode_Null then
             Grtlink.Ieee_Std_Logic_1164_Resolved_Resolv_Ptr :=
               Ortho_Jit.Get_Address (Decl);
@@ -694,14 +759,10 @@ package body Ghdlrun is
       Ortho_Jit.Finish;
 
       Translation.Finalize;
-      Lists.Initialize;
-      Str_Table.Initialize;
-      Nodes.Initialize;
-      Files_Map.Initialize;
-      Name_Table.Finalize;
+      Options.Finalize;
 
       if Flag_Verbose then
-         Ada.Text_IO.Put_Line ("Starting simulation");
+         Put_Line ("Starting simulation");
       end if;
 
       Grt.Main.Run;
@@ -716,7 +777,7 @@ package body Ghdlrun is
    function Decode_Command (Cmd : Command_Run_Help; Name : String)
                            return Boolean;
    function Get_Short_Help (Cmd : Command_Run_Help) return String;
-   procedure Perform_Action (Cmd : Command_Run_Help;
+   procedure Perform_Action (Cmd : in out Command_Run_Help;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Run_Help; Name : String)
@@ -724,25 +785,26 @@ package body Ghdlrun is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "--run-help";
+      return Name = "run-help"
+        or else Name = "--run-help";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Run_Help) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "--run-help         Disp help for RUNOPTS options";
+      return "run-help"
+        & ASCII.LF & "  Display help for RUNOPTS options"
+        & ASCII.LF & "  alias: --run-help";
    end Get_Short_Help;
 
-   procedure Perform_Action (Cmd : Command_Run_Help;
+   procedure Perform_Action (Cmd : in out Command_Run_Help;
                              Args : Argument_List)
    is
       pragma Unreferenced (Cmd);
-      use Ada.Text_IO;
    begin
       if Args'Length /= 0 then
-         Error
-           ("warning: command '--run-help' does not accept any argument");
+         Error ("warning: command 'run-help' does not accept any argument");
       end if;
       Put_Line ("These options can only be placed at [RUNOPTS]");
       --  Register modules, since they add commands.

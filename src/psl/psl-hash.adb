@@ -1,22 +1,21 @@
 --  PSL - HDL interface.
 --  Copyright (C) 2002-2016 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Tables;
+with PSL.Types; use PSL.Types;
 
 package body PSL.Hash is
 
@@ -44,7 +43,8 @@ package body PSL.Hash is
       end loop;
    end Init;
 
-   function Get_PSL_Node (Hdl : Int32) return Node is
+   function Get_PSL_Node (Hdl : Int32; Loc : Location_Type) return Node
+   is
       Idx : Index_Type := Index_Type (Hdl mod Int32 (Hash_Size));
       N_Idx : Index_Type;
       Res : Node;
@@ -52,8 +52,9 @@ package body PSL.Hash is
       --  In the primary table.
       Res := Cells.Table (Idx).Res;
       if Res = Null_Node then
-         Res := Create_Node (N_HDL_Expr);
+         Res := Create_Node (N_HDL_Bool);
          Set_HDL_Node (Res, Hdl);
+         Set_Location (Res, Loc);
          Cells.Table (Idx).Res := Res;
          return Res;
       end if;
@@ -68,8 +69,9 @@ package body PSL.Hash is
          Idx := N_Idx;
          Res := Cells.Table (Idx).Res;
       end loop;
-      Res := Create_Node (N_HDL_Expr);
+      Res := Create_Node (N_HDL_Bool);
       Set_HDL_Node (Res, Hdl);
+      Set_Location (Res, Loc);
       Cells.Append ((Res => Res, Next => No_Index));
       Cells.Table (Idx).Next := Cells.Last;
       return Res;

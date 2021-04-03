@@ -1,24 +1,22 @@
 --  Loading of source files.
 --  Copyright (C) 2002, 2003, 2004, 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with Types; use Types;
 with Tables;
 with Dyn_Tables;
-with Nodes;
+with Vhdl.Types;
 
 --  Source file handling
 
@@ -49,12 +47,17 @@ package Files_Map is
                               return Source_File_Entry;
 
    --  Reserve an entry, but do not read any file.
+   --  The length should includes the two terminal EOT.
    function Reserve_Source_File
      (Directory : Name_Id; Name : Name_Id; Length : Source_Ptr)
      return Source_File_Entry;
 
    --  Each file in memory has two terminal EOT.
    EOT : constant Character := Character'Val (4);
+
+   --  From the extension of FILENAME, extract the language.
+   --  Return Language_Unknown is not known.
+   function Find_Language (Filename : String) return Language_Type;
 
    --  Create an empty Source_File for a virtual file name.  Used for implicit,
    --  command-line and std.standard library.
@@ -70,13 +73,22 @@ package Files_Map is
    --  location LOC).  The content of this file is the same as REF, but with
    --  new locations so that it is possible to retrieve the instance from
    --  the new locations.
-   function Create_Instance_Source_File
-     (Ref : Source_File_Entry; Loc : Location_Type; Inst : Nodes.Node_Type)
-     return Source_File_Entry;
+   function Create_Instance_Source_File (Ref : Source_File_Entry;
+                                         Loc : Location_Type;
+                                         Inst : Vhdl.Types.Vhdl_Node)
+                                        return Source_File_Entry;
 
    --  Unload last source file.  Works only with the last one.  Must be
    --  carefully used as the corresponding locations will be reused.
    procedure Unload_Last_Source_File (File : Source_File_Entry);
+
+   --  Mark FILE as unavailable: clear the name and directory.
+   --  This is needed before creating a new source file with the same name.
+   procedure Discard_Source_File (File : Source_File_Entry);
+
+   --  Free resources used by FILE, but keep the entry.
+   --  (It could be recycled for files that could fit - not implemented).
+   procedure Free_Source_File (File : Source_File_Entry);
 
    --  Relocate location LOC (which must be in the reference of INST_FILE)
    --  for instrnace INST_FILE.
@@ -100,10 +112,21 @@ package Files_Map is
    --  Likewise but return a pointer.  To be used only from non-Ada code.
    function Get_File_Buffer (File : Source_File_Entry) return File_Buffer_Ptr;
 
-   --  Set/Get the length of the file (which is less than the size of the
-   --  file buffer).  Set also append two EOT at the end of the file.
+   --  Set the length of the file (which is less than the size of the
+   --  file buffer).
+   --  Set also append two EOT at the end of the file.
    procedure Set_File_Length (File : Source_File_Entry; Length : Source_Ptr);
+
+   --  Get the position of the first EOT character.
    function Get_File_Length (File : Source_File_Entry) return Source_Ptr;
+
+   --  Get the length of the content; this is the file length minus the gap,
+   --  if the gap is before the end.
+   function Get_Content_Length (File : Source_File_Entry) return Source_Ptr;
+
+   --  Get the length of the buffer, which always includes the gap and the
+   --  two terminal EOT.
+   function Get_Buffer_Length (File : Source_File_Entry) return Source_Ptr;
 
    --  Return the name of the file.
    function Get_File_Name (File : Source_File_Entry) return Name_Id;
@@ -195,6 +218,13 @@ package Files_Map is
                                 Line : out Positive;
                                 Offset : out Natural);
 
+   --  Convert FILE and POS to coordinate.
+   procedure File_Pos_To_Coord (File : Source_File_Entry;
+                                Pos : Source_Ptr;
+                                Line_Pos : out Source_Ptr;
+                                Line : out Positive;
+                                Offset : out Natural);
+
    --  Convert a physical column to a logical column.
    --  A physical column is the offset in byte from the first byte of the line.
    --  A logical column is the position of the character when displayed.
@@ -233,15 +263,19 @@ package Files_Map is
    function Image (Loc : Location_Type; Filename : Boolean := True)
                   return String;
 
-   --  Free all memory and reinitialize.
+   --  Initialize.
    procedure Initialize;
 
+   --  Free all memory.
+   procedure Finalize;
+
 private
+   Lines_Table_Init : Natural := 64;
+
    package Lines_Tables is new Dyn_Tables
      (Table_Component_Type => Source_Ptr,
       Table_Index_Type => Natural,
-      Table_Low_Bound => 1,
-      Table_Initial => 64);
+      Table_Low_Bound => 1);
 
    --  There are several kinds of source file.
    type Source_File_Kind is

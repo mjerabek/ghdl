@@ -1,20 +1,18 @@
 --  Mcode back-end for ortho.
 --  Copyright (C) 2006 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with Interfaces; use Interfaces;
 with Ortho_Code; use Ortho_Code;
 with Ortho_Code.Types; use Ortho_Code.Types;
@@ -52,14 +50,15 @@ private
    O_Snode_Null : constant O_Snode := O_Snode (Ortho_Code.Exprs.O_Snode_Null);
    O_Tnode_Null : constant O_Tnode := O_Tnode (Ortho_Code.O_Tnode_Null);
 
-   type O_Element_List is new Ortho_Code.Types.O_Element_List;
-   type O_Enum_List    is new Ortho_Code.Types.O_Enum_List;
-   type O_Inter_List   is new Ortho_Code.Decls.O_Inter_List;
+   type O_Element_List     is new Ortho_Code.Types.O_Element_List;
+   type O_Element_Sublist  is new Ortho_Code.Types.O_Element_List;
+   type O_Enum_List        is new Ortho_Code.Types.O_Enum_List;
+   type O_Inter_List       is new Ortho_Code.Decls.O_Inter_List;
    type O_Record_Aggr_List is new Ortho_Code.Consts.O_Record_Aggr_List;
-   type O_Array_Aggr_List is new Ortho_Code.Consts.O_Array_Aggr_List;
-   type O_Assoc_List is new Ortho_Code.Exprs.O_Assoc_List;
-   type O_If_Block   is new Ortho_Code.Exprs.O_If_Block;
-   type O_Case_Block is new Ortho_Code.Exprs.O_Case_Block;
+   type O_Array_Aggr_List  is new Ortho_Code.Consts.O_Array_Aggr_List;
+   type O_Assoc_List       is new Ortho_Code.Exprs.O_Assoc_List;
+   type O_If_Block         is new Ortho_Code.Exprs.O_If_Block;
+   type O_Case_Block       is new Ortho_Code.Exprs.O_Case_Block;
 
    pragma Inline (New_Lit);
    pragma Inline (New_Dyadic_Op);

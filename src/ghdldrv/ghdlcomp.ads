@@ -1,22 +1,20 @@
 --  GHDL driver - compile commands.
 --  Copyright (C) 2002, 2003, 2004, 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with GNAT.OS_Lib; use GNAT.OS_Lib;
-with Iirs; use Iirs;
+with Vhdl.Nodes; use Vhdl.Nodes;
 
 package Ghdlcomp is
    --  This procedure is called at start of commands which call
@@ -81,11 +79,29 @@ package Ghdlcomp is
    -- hr => 'h'
    Time_Resolution: Character := 'f';
 
+   --  Common action to perform before analysis: library setup.
+   procedure Common_Compile_Init (Analyze_Only : Boolean);
+
+   --  Common action to perform before elaboration:
+   --  * extract PRIM_NAME and SEC_NAME from ARGS.
+   --  * configure
+   --  * Check top entity.
+   procedure Common_Compile_Elab (Cmd_Name : String;
+                                  Args : Argument_List;
+                                  Opt_Arg : out Natural;
+                                  Config : out Iir);
+
    --  Functionnal interface.
    --  Must be first initialized by Compile_Init
    procedure Compile_Analyze_Init (Load_Work : Boolean := True);
-   procedure Compile_Analyze_File (File : String);
-   function Compile_Analyze_File2 (File : String) return Iir;
+
+   --  Load and parse FILE, put library units in the work library (without
+   --  analyzing them).
+   procedure Compile_Load_File (File : String);
+
+   --  Load, parse and analyze FILE.
+   function Compile_Analyze_File (File : String) return Iir;
+
    procedure Compile_Elaborate (Unit_Name : String_Access);
    procedure Compile_Run;
 end Ghdlcomp;

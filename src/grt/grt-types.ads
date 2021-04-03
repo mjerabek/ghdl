@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) - common types.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -31,7 +29,8 @@ package Grt.Types is
    pragma Preelaborate (Grt.Types);
 
    type Ghdl_B1 is new Boolean;
-   type Ghdl_E8 is new Unsigned_8;
+   type Ghdl_U8 is new Unsigned_8;
+   subtype Ghdl_E8 is Ghdl_U8;
    type Ghdl_U32 is new Unsigned_32;
    subtype Ghdl_E32 is Ghdl_U32;
    type Ghdl_I32 is new Integer_32;
@@ -70,6 +69,9 @@ package Grt.Types is
       Dir : Ghdl_Dir_Type;
       Length : Ghdl_Index_Type;
    end record;
+
+   type Std_Integer_Range_Ptr is access Std_Integer_Trt;
+   pragma Convention (C, Std_Integer_Range_Ptr);
 
    subtype Std_Character is Character;
    type Std_String_Uncons is array (Ghdl_Index_Type range <>) of Std_Character;
@@ -166,6 +168,9 @@ package Grt.Types is
    type Ghdl_Location_Ptr is access Ghdl_Location;
    function To_Ghdl_Location_Ptr is new Ada.Unchecked_Conversion
      (Source => Address, Target => Ghdl_Location_Ptr);
+
+   type C_Boolean is new Boolean;
+   pragma Convention (C, C_Boolean);
 
    --  Signal index.
    type Sig_Table_Index is new Integer;

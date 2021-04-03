@@ -1,20 +1,18 @@
 --  Edition of a files_map buffer.
 --  Copyright (C) 2018 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Logging; use Logging;
 
@@ -51,7 +49,7 @@ package body Files_Map.Editor is
       P : Source_Ptr;
       Nl : Natural;
    begin
-      Lines_Tables.Init (F.Lines);
+      Lines_Tables.Init (F.Lines, Lines_Table_Init);
 
       L := 1;
       P := Source_Ptr_Org;
@@ -84,6 +82,15 @@ package body Files_Map.Editor is
       P : Source_Ptr;
       Nl : Natural;
    begin
+      --  Check File_Length.
+      P := F.File_Length;
+      if P >= Get_Buffer_Length (File) then
+         Log_Line ("invalid file length");
+      end if;
+      if F.Source (P) /= EOT or else F.Source (P + 1) /= EOT then
+         Log_Line ("missing EOT at end of buffer");
+      end if;
+
       L := 1;
       P := Source_Ptr_Org;
       Main_Loop: loop
@@ -184,6 +191,8 @@ package body Files_Map.Editor is
            F.Source (New_Start .. New_Start + Diff - 1);
 
          if F.Gap_Start >= F.File_Length then
+            --  The gap was after the EOT.  As it is moved before, we need
+            --  to increase the file length.
             F.File_Length := F.File_Length + Gap_Len;
          end if;
 
@@ -204,7 +213,8 @@ package body Files_Map.Editor is
          F.Source (F.Gap_Start .. F.Gap_Start + Diff - 1) :=
            F.Source (F.Gap_Last + 1 .. F.Gap_Last + 1 + Diff - 1);
 
-         if New_Start + Gap_Len >= F.File_Length then
+         if New_Start + Gap_Len > F.File_Length then
+            --  Moved past the end of file.  Decrease the file length.
             F.File_Length := F.File_Length - Gap_Len;
          end if;
 
@@ -248,12 +258,12 @@ package body Files_Map.Editor is
       return Res;
    end Count_Newlines;
 
-   procedure Replace_Text (File : Source_File_Entry;
-                           Start_Line : Positive;
-                           Start_Off  : Natural;
-                           End_Line   : Positive;
-                           End_Off    : Natural;
-                           Text       : File_Buffer)
+   function Replace_Text (File : Source_File_Entry;
+                          Start_Line : Positive;
+                          Start_Off  : Natural;
+                          End_Line   : Positive;
+                          End_Off    : Natural;
+                          Text       : File_Buffer) return Boolean
    is
       pragma Assert (File <= Source_Files.Last);
       F : Source_File_Record renames Source_Files.Table (File);
@@ -276,7 +286,7 @@ package body Files_Map.Editor is
 
          --  Check there is enough space.
          if Text_Len > Gap_Size + Range_Size then
-            raise Constraint_Error;
+            return False;
          end if;
 
          --  Replace text, handle new lines.
@@ -323,7 +333,7 @@ package body Files_Map.Editor is
          begin
             --  No change in newlines.
             if Text_Lines = 0 and then Orig_Lines = 0 then
-               return;
+               return True;
             end if;
 
             --  Make room for lines table.
@@ -359,18 +369,20 @@ package body Files_Map.Editor is
             Check_Buffer_Lines (File);
          end;
       end;
+
+      return True;
    end Replace_Text;
 
-   procedure Replace_Text_Ptr (File : Source_File_Entry;
-                               Start_Line : Positive;
-                               Start_Off  : Natural;
-                               End_Line   : Positive;
-                               End_Off    : Natural;
-                               Text_Ptr   : File_Buffer_Ptr;
-                               Text_Len   : Source_Ptr) is
+   function Replace_Text_Ptr (File : Source_File_Entry;
+                              Start_Line : Positive;
+                              Start_Off  : Natural;
+                              End_Line   : Positive;
+                              End_Off    : Natural;
+                              Text_Ptr   : File_Buffer_Ptr;
+                              Text_Len   : Source_Ptr) return Boolean is
    begin
-      Replace_Text (File, Start_Line, Start_Off, End_Line, End_Off,
-                    Text_Ptr (0 .. Text_Len - 1));
+      return Replace_Text (File, Start_Line, Start_Off, End_Line, End_Off,
+                           Text_Ptr (0 .. Text_Len - 1));
    end Replace_Text_Ptr;
 
    procedure Set_Gap (File : Source_File_Entry;
@@ -383,6 +395,77 @@ package body Files_Map.Editor is
       F.Gap_Start := First;
       F.Gap_Last := Last;
    end Set_Gap;
+
+   procedure Fill_Text_Ptr (File : Source_File_Entry;
+                            Text_Ptr   : File_Buffer_Ptr;
+                            Text_Len   : Source_Ptr)
+   is
+      pragma Assert (File <= Source_Files.Last);
+      F : Source_File_Record renames Source_Files.Table (File);
+      Buf_Len : constant Source_Ptr := Get_Buffer_Length (File);
+   begin
+      if Text_Len + 2 > Buf_Len then
+         --  Buffer is too small!
+         raise Constraint_Error;
+      end if;
+
+      if Text_Len > 0 then
+         F.Source (Source_Ptr_Org .. Source_Ptr_Org + Text_Len - 1) :=
+           Text_Ptr (Source_Ptr_Org .. Source_Ptr_Org + Text_Len - 1);
+      end if;
+      Set_File_Length (File, Text_Len);
+
+      --  Move the gap after the two terminal EOT.
+      Set_Gap (File, Text_Len + 2, Buf_Len - 1);
+
+      --  Clear cache.
+      F.Cache_Line := 1;
+      F.Cache_Pos := Source_Ptr_Org;
+
+      --  Reset line table.
+      Lines_Tables.Free (F.Lines);
+      Lines_Tables.Init (F.Lines, Lines_Table_Init);
+      File_Add_Line_Number (File, 1, Source_Ptr_Org);
+   end Fill_Text_Ptr;
+
+   procedure Copy_Source_File (Dest : Source_File_Entry;
+                               Src : Source_File_Entry)
+   is
+      pragma Assert (Src <= Source_Files.Last);
+      pragma Assert (Dest <= Source_Files.Last);
+      S : Source_File_Record renames Source_Files.Table (Src);
+      D : Source_File_Record renames Source_Files.Table (Dest);
+      S_Cont_Len : constant Source_Ptr := Get_Content_Length (Src);
+      D_Buf_Len : constant Source_Ptr := Get_Buffer_Length (Dest);
+   begin
+      if S_Cont_Len + 2 > D_Buf_Len then
+         --  Buffer is too small!
+         raise Constraint_Error;
+      end if;
+
+      if S.Gap_Start < S.File_Length then
+         pragma Assert (Source_Ptr_Org = 0);
+         D.Source (0 .. S.Gap_Start - 1) :=
+           S.Source (0 .. S.Gap_Start - 1);
+         D.Source (S.Gap_Start .. S_Cont_Len - 1) :=
+           S.Source (S.Gap_Last + 1 .. S.File_Length - 1);
+      else
+         pragma Assert (S.Gap_Start = S_Cont_Len + 2);
+         D.Source (Source_Ptr_Org .. Source_Ptr_Org + S_Cont_Len - 1) :=
+           S.Source (Source_Ptr_Org .. Source_Ptr_Org + S_Cont_Len - 1);
+      end if;
+
+      Set_File_Length (Dest, S_Cont_Len);
+
+      --  Move the gap after the two terminal EOT.
+      Set_Gap (Dest, S_Cont_Len + 2, D_Buf_Len - 1);
+
+      --  Clear cache.
+      D.Cache_Line := 1;
+      D.Cache_Pos := Source_Ptr_Org;
+
+      Compute_Lines (Dest);
+   end Copy_Source_File;
 
    procedure Check_Buffer_Content (File : Source_File_Entry;
                                    Str : File_Buffer_Ptr;

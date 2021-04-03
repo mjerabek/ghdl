@@ -1,58 +1,55 @@
 --  GHDL driver - compile commands.
 --  Copyright (C) 2002, 2003, 2004, 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
+with Ada.Command_Line;
+
 with Ghdlmain; use Ghdlmain;
 with Ghdllocal; use Ghdllocal;
+with Options; use Options;
 
-with Ada.Command_Line;
-with Ada.Characters.Latin_1;
-with Ada.Text_IO;
-
-with Types;
+with Types; use Types;
 with Flags;
-with Sem;
-with Sem_Lib; use Sem_Lib;
+with Simple_IO;
 with Name_Table;
+with Files_Map;
+
+with Vhdl.Std_Package;
+with Vhdl.Sem;
+with Vhdl.Sem_Lib; use Vhdl.Sem_Lib;
+with Vhdl.Utils;
+with Vhdl.Configuration;
 with Errorout; use Errorout;
 with Libraries;
-with Std_Package;
-with Files_Map;
-with Version;
 
 package body Ghdlcomp is
 
    Flag_Expect_Failure : Boolean := False;
 
    --  Commands which use the mcode compiler.
-   type Command_Comp is abstract new Command_Lib with record
-      --  If set, force semantic analysis even in case of parse error.
-      Flag_Force_Analysis : Boolean := False;
-   end record;
+   type Command_Comp is abstract new Command_Lib with null record;
 
    procedure Decode_Option (Cmd : in out Command_Comp;
                             Option : String;
                             Arg : String;
-                            Res : out Option_Res);
+                            Res : out Option_State);
    procedure Disp_Long_Help (Cmd : Command_Comp);
 
    procedure Decode_Option (Cmd : in out Command_Comp;
                             Option : String;
                             Arg : String;
-                            Res : out Option_Res)
+                            Res : out Option_State)
    is
       pragma Assert (Option'First = 1);
    begin
@@ -61,9 +58,6 @@ package body Ghdlcomp is
          Res := Option_Ok;
       elsif Option = "--check-ast" then
          Flags.Check_Ast_Level := Flags.Check_Ast_Level + 1;
-         Res := Option_Ok;
-      elsif Option = "--force-analysis" then
-         Cmd.Flag_Force_Analysis := True;
          Res := Option_Ok;
       elsif Hooks.Decode_Option.all (Option) then
          Res := Option_Ok;
@@ -97,7 +91,7 @@ package body Ghdlcomp is
 
    procedure Disp_Long_Help (Cmd : Command_Comp)
    is
-      use Ada.Text_IO;
+      use Simple_IO;
    begin
       Disp_Long_Help (Command_Lib (Cmd));
       Hooks.Disp_Long_Help.all;
@@ -112,7 +106,7 @@ package body Ghdlcomp is
                            return Boolean;
    function Get_Short_Help (Cmd : Command_Run) return String;
 
-   procedure Perform_Action (Cmd : Command_Run;
+   procedure Perform_Action (Cmd : in out Command_Run;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Run; Name : String)
@@ -120,18 +114,23 @@ package body Ghdlcomp is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "-r" or Name = "--elab-run";
+      return Name = "elab-run"
+        or else Name = "--elab-run"
+        or else Name = "-r"
+        or else Name = "run";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Run) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "-r,--elab-run [OPTS] UNIT [ARCH] [RUNOPTS]  Run UNIT";
+      return "elab-run [OPTS] UNIT [ARCH] [RUNOPTS]"
+        & ASCII.LF & "  Elaborate and run design UNIT"
+        & ASCII.LF & "  aliases: --elab-run, -r, run";
    end Get_Short_Help;
 
 
-   procedure Perform_Action (Cmd : Command_Run;
+   procedure Perform_Action (Cmd : in out Command_Run;
                              Args : Argument_List)
    is
       pragma Unreferenced (Cmd);
@@ -158,7 +157,7 @@ package body Ghdlcomp is
    end Perform_Action;
 
 
-   --  Command -c xx -r
+   --  Command -c xx -r/-e
    type Command_Compile is new Command_Comp with null record;
    function Decode_Command (Cmd : Command_Compile; Name : String)
                            return Boolean;
@@ -166,8 +165,8 @@ package body Ghdlcomp is
    procedure Decode_Option (Cmd : in out Command_Compile;
                             Option : String;
                             Arg : String;
-                            Res : out Option_Res);
-   procedure Perform_Action (Cmd : Command_Compile;
+                            Res : out Option_State);
+   procedure Perform_Action (Cmd : in out Command_Compile;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Compile; Name : String)
@@ -175,21 +174,23 @@ package body Ghdlcomp is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "-c";
+      return Name = "compile"
+        or else Name = "-c";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Compile) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "-c [OPTS] FILEs -r UNIT [ARCH] [RUNOPTS]  "
-        & "Compile, elaborate and run UNIT";
+      return "compile [OPTS] FILEs -e|-r UNIT [ARCH] [RUNOPTS]"
+        & ASCII.LF & "  Compile, elaborate (and run) design UNIT"
+        & ASCII.LF & "  alias: -c";
    end Get_Short_Help;
 
    procedure Decode_Option (Cmd : in out Command_Compile;
                             Option : String;
                             Arg : String;
-                            Res : out Option_Res)
+                            Res : out Option_State)
    is
    begin
       if Option = "-r" or else Option = "-e" then
@@ -216,7 +217,7 @@ package body Ghdlcomp is
       end if;
    end Compile_Analyze_Init;
 
-   procedure Compile_Analyze_File (File : String)
+   procedure Compile_Load_File (File : String)
    is
       Res : Iir_Design_File;
       Design : Iir;
@@ -235,23 +236,24 @@ package body Ghdlcomp is
          Libraries.Add_Design_Unit_Into_Library (Design);
          Design := Next_Design;
       end loop;
-   end Compile_Analyze_File;
+   end Compile_Load_File;
 
-   function Compile_Analyze_File2 (File : String) return Iir
+   function Compile_Analyze_File (File : String) return Iir
    is
-      use Types;
       Id : constant Name_Id := Name_Table.Get_Identifier (File);
       Design_File : Iir_Design_File;
       New_Design_File : Iir_Design_File;
       Unit : Iir;
       Next_Unit : Iir;
    begin
+      --  Load file and parse.
       Design_File := Load_File_Name (Id);
       if Design_File = Null_Iir or else Errorout.Nbr_Errors > 0 then
          --  Stop now in case of error (file not found or parse error).
          return Design_File;
       end if;
 
+      --  Analyze and add to the work library.
       Unit := Get_First_Design_Unit (Design_File);
       while Unit /= Null_Iir loop
          Finish_Compilation (Unit, True);
@@ -276,13 +278,13 @@ package body Ghdlcomp is
       --  Do late analysis checks.
       Unit := Get_First_Design_Unit (New_Design_File);
       while Unit /= Null_Iir loop
-         Sem.Sem_Analysis_Checks_List
+         Vhdl.Sem.Sem_Analysis_Checks_List
            (Unit, Is_Warning_Enabled (Warnid_Delayed_Checks));
          Unit := Get_Chain (Unit);
       end loop;
 
       return New_Design_File;
-   end Compile_Analyze_File2;
+   end Compile_Analyze_File;
 
    procedure Compile_Elaborate (Unit_Name : String_Access)
    is
@@ -300,7 +302,61 @@ package body Ghdlcomp is
       Hooks.Run.all;
    end Compile_Run;
 
-   procedure Perform_Action (Cmd : Command_Compile;
+   procedure Common_Compile_Init (Analyze_Only : Boolean) is
+   begin
+      if Analyze_Only then
+         if not Setup_Libraries (True) then
+            raise Option_Error;
+         end if;
+      else
+         if not Setup_Libraries (False)
+           or else not Libraries.Load_Std_Library
+         then
+            raise Option_Error;
+         end if;
+         --  WORK library is not loaded.  FIXME: why ?
+      end if;
+
+      if Time_Resolution /= 'a' then
+         Vhdl.Std_Package.Set_Time_Resolution (Time_Resolution);
+      end if;
+   end Common_Compile_Init;
+
+   procedure Common_Compile_Elab (Cmd_Name : String;
+                                  Args : Argument_List;
+                                  Opt_Arg : out Natural;
+                                  Config : out Iir)
+   is
+      Prim_Id : Name_Id;
+      Sec_Id : Name_Id;
+   begin
+      Extract_Elab_Unit (Cmd_Name, Args, Opt_Arg, Prim_Id, Sec_Id);
+
+      Flags.Flag_Elaborate := True;
+
+      Config := Vhdl.Configuration.Configure (Prim_Id, Sec_Id);
+      if Config = Null_Iir
+        or else Errorout.Nbr_Errors > 0
+      then
+         raise Compilation_Error;
+      end if;
+
+      --  Check (and possibly abandon) if entity can be at the top of the
+      --  hierarchy.
+      declare
+         Conf_Unit : constant Iir := Get_Library_Unit (Config);
+         Arch : constant Iir := Get_Named_Entity
+           (Get_Block_Specification (Get_Block_Configuration (Conf_Unit)));
+         Entity : constant Iir := Vhdl.Utils.Get_Entity (Arch);
+      begin
+         Vhdl.Configuration.Check_Entity_Declaration_Top (Entity, True);
+         if Nbr_Errors > 0 then
+            raise Compilation_Error;
+         end if;
+      end;
+   end Common_Compile_Elab;
+
+   procedure Perform_Action (Cmd : in out Command_Compile;
                              Args : Argument_List)
    is
       pragma Unreferenced (Cmd);
@@ -326,8 +382,15 @@ package body Ghdlcomp is
                   if Arg = "-r" or else Arg = "-e" then
                      Elab_Arg := I + 1;
                      exit;
+                  elsif Arg'Last > 7 and then Arg (1 .. 7) = "--work=" then
+                     Libraries.Work_Library_Name :=
+                       Libraries.Decode_Work_Option (Arg);
+                     if Libraries.Work_Library_Name = Null_Identifier then
+                        raise Compilation_Error;
+                     end if;
+                     Libraries.Load_Work_Library (True);
                   else
-                     Compile_Analyze_File (Arg);
+                     Compile_Load_File (Arg);
                   end if;
                end;
             end loop;
@@ -355,6 +418,7 @@ package body Ghdlcomp is
       else
          if Run_Arg <= Args'Last then
             Error_Msg_Option ("options after unit are ignored");
+            raise Option_Error;
          end if;
       end if;
    end Perform_Action;
@@ -365,7 +429,7 @@ package body Ghdlcomp is
                            return Boolean;
    function Get_Short_Help (Cmd : Command_Analyze) return String;
 
-   procedure Perform_Action (Cmd : Command_Analyze;
+   procedure Perform_Action (Cmd : in out Command_Analyze;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Analyze; Name : String)
@@ -373,20 +437,24 @@ package body Ghdlcomp is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "-a";
+      return Name = "analyze"
+        or else Name = "-a"
+        or else Name = "analyse";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Analyze) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "-a [OPTS] FILEs    Analyze FILEs";
+      return "analyze [OPTS] FILEs"
+        & ASCII.LF & "  Analyze one or multiple VHDL files"
+        & ASCII.LF & "  aliases: -a, analyse";
    end Get_Short_Help;
 
-   procedure Perform_Action (Cmd : Command_Analyze;
+   procedure Perform_Action (Cmd : in out Command_Analyze;
                              Args : Argument_List)
    is
-      use Types;
+      pragma Unreferenced (Cmd);
       Id : Name_Id;
       Design_File : Iir_Design_File;
       New_Design_File : Iir_Design_File;
@@ -398,10 +466,9 @@ package body Ghdlcomp is
          raise Compilation_Error;
       end if;
 
-      Hooks.Compile_Init.all (True);
+      Expect_Filenames (Args);
 
-      --  Analysis won't chock on incorrect parse tree.
-      Flags.Flag_Force_Analysis := Cmd.Flag_Force_Analysis;
+      Hooks.Compile_Init.all (True);
 
       --  Parse all files.
       for I in Args'Range loop
@@ -410,7 +477,7 @@ package body Ghdlcomp is
          --  Parse file.
          Design_File := Load_File_Name (Id);
          if Errorout.Nbr_Errors > 0
-           and then not Cmd.Flag_Force_Analysis
+           and then not Flags.Flag_Force_Analysis
          then
             raise Compilation_Error;
          end if;
@@ -432,7 +499,7 @@ package body Ghdlcomp is
                Next_Unit := Get_Chain (Unit);
 
                if Errorout.Nbr_Errors = 0
-                 or else (Cmd.Flag_Force_Analysis
+                 or else (Flags.Flag_Force_Analysis
                             and then Get_Library_Unit (Unit) /= Null_Iir)
                then
                   Set_Chain (Unit, Null_Iir);
@@ -444,7 +511,7 @@ package body Ghdlcomp is
             end loop;
 
             if Errorout.Nbr_Errors > 0
-              and then not Cmd.Flag_Force_Analysis
+              and then not Flags.Flag_Force_Analysis
             then
                raise Compilation_Error;
             end if;
@@ -460,13 +527,13 @@ package body Ghdlcomp is
             if New_Design_File /= Null_Iir then
                Unit := Get_First_Design_Unit (New_Design_File);
                while Unit /= Null_Iir loop
-                  Sem.Sem_Analysis_Checks_List
+                  Vhdl.Sem.Sem_Analysis_Checks_List
                     (Unit, Is_Warning_Enabled (Warnid_Delayed_Checks));
                   Unit := Get_Chain (Unit);
                end loop;
 
                if Errorout.Nbr_Errors > 0
-                 and then not Cmd.Flag_Force_Analysis
+                 and then not Flags.Flag_Force_Analysis
                then
                   raise Compilation_Error;
                end if;
@@ -494,16 +561,16 @@ package body Ghdlcomp is
    end Perform_Action;
 
    --  Command -e
-   type Command_Elab is new Command_Lib with null record;
+   type Command_Elab is new Command_Comp with null record;
    function Decode_Command (Cmd : Command_Elab; Name : String)
                            return Boolean;
    function Get_Short_Help (Cmd : Command_Elab) return String;
    procedure Decode_Option (Cmd : in out Command_Elab;
                             Option : String;
                             Arg : String;
-                            Res : out Option_Res);
+                            Res : out Option_State);
 
-   procedure Perform_Action (Cmd : Command_Elab;
+   procedure Perform_Action (Cmd : in out Command_Elab;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Elab; Name : String)
@@ -511,43 +578,43 @@ package body Ghdlcomp is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "-e";
+      return Name = "elaborate"
+        or else Name = "-e";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Elab) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "-e [OPTS] UNIT [ARCH]  Elaborate UNIT";
+      return "elaborate [OPTS] UNIT [ARCH]"
+        & ASCII.LF & "  Elaborate design UNIT"
+        & ASCII.LF & "  alias: -e";
    end Get_Short_Help;
 
    procedure Decode_Option (Cmd : in out Command_Elab;
                             Option : String;
                             Arg : String;
-                            Res : out Option_Res)
+                            Res : out Option_State)
    is
       pragma Assert (Option'First = 1);
    begin
-      if Option = "--expect-failure" then
-         Flag_Expect_Failure := True;
-         Res := Option_Ok;
-      elsif Option = "-o" then
+      if Option = "-o" then
          if Arg'Length = 0 then
             Res := Option_Arg_Req;
          else
             --  Silently accepted.
             Res := Option_Arg;
          end if;
-      elsif Option'Length >= 4
-        and then Option (1 .. 4) = "-Wl," then
+      elsif Option'Length >= 4 and then Option (1 .. 4) = "-Wl," then
          Error_Msg_Option ("option -Wl is not available when ghdl "
                              & "is not configured with gcc or llvm");
+         Res := Option_Err;
       else
-         Decode_Option (Command_Lib (Cmd), Option, Arg, Res);
+         Decode_Option (Command_Comp (Cmd), Option, Arg, Res);
       end if;
    end Decode_Option;
 
-   procedure Perform_Action (Cmd : Command_Elab;
+   procedure Perform_Action (Cmd : in out Command_Elab;
                              Args : Argument_List)
    is
       pragma Unreferenced (Cmd);
@@ -562,6 +629,7 @@ package body Ghdlcomp is
       Hooks.Compile_Elab.all ("-e", Args, Run_Arg);
       if Run_Arg <= Args'Last then
          Error_Msg_Option ("options after unit are ignored");
+         raise Option_Error;
       end if;
       if Flag_Expect_Failure then
          raise Compilation_Error;
@@ -580,7 +648,7 @@ package body Ghdlcomp is
    function Decode_Command (Cmd : Command_Dispconfig; Name : String)
                            return Boolean;
    function Get_Short_Help (Cmd : Command_Dispconfig) return String;
-   procedure Perform_Action (Cmd : Command_Dispconfig;
+   procedure Perform_Action (Cmd : in out Command_Dispconfig;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Dispconfig; Name : String)
@@ -588,19 +656,24 @@ package body Ghdlcomp is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "--dispconfig" or else Name = "--disp-config";
+      return Name = "disp-config"
+        or else Name = "--disp-config"
+        or else Name = "dispconfig"
+        or else Name = "--dispconfig";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Dispconfig) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "--disp-config      Disp tools path";
+      return "disp-config"
+        & ASCII.LF & "  Display tools path"
+        & ASCII.LF & "  aliases: --disp-config, dispconfig, --dispconfig";
    end Get_Short_Help;
 
    procedure Disp_Config
    is
-      use Ada.Text_IO;
+      use Simple_IO;
       use Libraries;
    begin
       Disp_Config_Prefixes;
@@ -612,15 +685,15 @@ package body Ghdlcomp is
       end loop;
    end Disp_Config;
 
-   procedure Perform_Action (Cmd : Command_Dispconfig;
+   procedure Perform_Action (Cmd : in out Command_Dispconfig;
                              Args : Argument_List)
    is
       pragma Unreferenced (Cmd);
-      use Ada.Text_IO;
+      use Simple_IO;
    begin
       if Args'Length /= 0 then
          Error ("--disp-config does not accept any argument");
-         raise Errorout.Option_Error;
+         raise Option_Error;
       end if;
       Put_Line ("command_name: " & Ada.Command_Line.Command_Name);
 
@@ -632,7 +705,7 @@ package body Ghdlcomp is
    function Decode_Command (Cmd : Command_Make; Name : String)
                            return Boolean;
    function Get_Short_Help (Cmd : Command_Make) return String;
-   procedure Perform_Action (Cmd : Command_Make;
+   procedure Perform_Action (Cmd : in out Command_Make;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Make; Name : String)
@@ -640,21 +713,25 @@ package body Ghdlcomp is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "-m";
+      return Name = "make"
+        or else Name = "-m";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Make) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "-m [OPTS] UNIT [ARCH]  Make UNIT";
+      return "make [OPTS] UNIT [ARCH]"
+        & ASCII.LF & "  Make design UNIT"
+        & ASCII.LF & "  alias: -m";
    end Get_Short_Help;
 
-   procedure Perform_Action (Cmd : Command_Make; Args : Argument_List)
+   procedure Perform_Action (Cmd : in out Command_Make; Args : Argument_List)
    is
       pragma Unreferenced (Cmd);
-      use Types;
 
+      Prim_Id : Name_Id;
+      Sec_Id : Name_Id;
       Files_List : Iir_List;
       File : Iir_Design_File;
       It : List_Iterator;
@@ -664,11 +741,13 @@ package body Ghdlcomp is
       Unit : Iir_Design_Unit;
       Lib : Iir_Library_Declaration;
    begin
-      Extract_Elab_Unit ("-m", Args, Next_Arg);
-      Setup_Libraries (True);
+      Extract_Elab_Unit ("-m", Args, Next_Arg, Prim_Id, Sec_Id);
+      if not Setup_Libraries (True) then
+         return;
+      end if;
 
       --  Create list of files.
-      Files_List := Build_Dependence (Prim_Name, Sec_Name);
+      Files_List := Build_Dependence (Prim_Id, Sec_Id);
 
       --  Unmark all libraries.
       Lib := Libraries.Std_Library;
@@ -682,7 +761,7 @@ package body Ghdlcomp is
       while Is_Valid (It) loop
          File := Get_Element (It);
 
-         if File = Std_Package.Std_Standard_File then
+         if File = Vhdl.Std_Package.Std_Standard_File then
             null;
          elsif Source_File_Modified (File)
            or else Is_File_Outdated (File)
@@ -753,12 +832,12 @@ package body Ghdlcomp is
          end if;
    end Perform_Action;
 
-      --  Command Gen_Makefile.
+   --  Command Gen_Makefile.
    type Command_Gen_Makefile is new Command_Lib with null record;
    function Decode_Command (Cmd : Command_Gen_Makefile; Name : String)
                            return Boolean;
    function Get_Short_Help (Cmd : Command_Gen_Makefile) return String;
-   procedure Perform_Action (Cmd : Command_Gen_Makefile;
+   procedure Perform_Action (Cmd : in out Command_Gen_Makefile;
                              Args : Argument_List);
 
    function Decode_Command (Cmd : Command_Gen_Makefile; Name : String)
@@ -766,34 +845,37 @@ package body Ghdlcomp is
    is
       pragma Unreferenced (Cmd);
    begin
-      return Name = "--gen-makefile";
+      return Name = "gen-makefile"
+        or else Name = "--gen-makefile";
    end Decode_Command;
 
    function Get_Short_Help (Cmd : Command_Gen_Makefile) return String
    is
       pragma Unreferenced (Cmd);
    begin
-      return "--gen-makefile [OPTS] UNIT [ARCH]  Generate a Makefile for UNIT";
+      return "gen-makefile [OPTS] UNIT [ARCH]"
+        & ASCII.LF & "  Generate a Makefile for UNIT"
+        & ASCII.LF & "  alias: --gen-makefile";
    end Get_Short_Help;
 
    function Is_Makeable_File (File : Iir_Design_File) return Boolean is
    begin
-      if File = Std_Package.Std_Standard_File then
+      if File = Vhdl.Std_Package.Std_Standard_File then
          return False;
       end if;
       return True;
    end Is_Makeable_File;
 
-   procedure Perform_Action (Cmd : Command_Gen_Makefile;
+   procedure Perform_Action (Cmd : in out Command_Gen_Makefile;
                              Args : Argument_List)
    is
       pragma Unreferenced (Cmd);
-      use Types;
-      use Ada.Text_IO;
-      use Ada.Command_Line;
+      use Simple_IO;
       use Name_Table;
 
-      HT : constant Character := Ada.Characters.Latin_1.HT;
+      HT : constant Character := ASCII.HT;
+      Prim_Id : Name_Id;
+      Sec_Id : Name_Id;
       Files_List : Iir_List;
       File : Iir_Design_File;
       Files_It : List_Iterator;
@@ -803,56 +885,17 @@ package body Ghdlcomp is
 
       Next_Arg : Natural;
    begin
-      Extract_Elab_Unit ("--gen-makefile", Args, Next_Arg);
-      Setup_Libraries (True);
-      Files_List := Build_Dependence (Prim_Name, Sec_Name);
-
-      Put_Line ("# Makefile automatically generated by ghdl");
-      Put ("# Version: GHDL ");
-      Put (Version.Ghdl_Ver);
-      Put (' ');
-      Put (Version.Ghdl_Release);
-      Put (" - ");
-      if Version_String /= null then
-         Put (Version_String.all);
+      Extract_Elab_Unit ("--gen-makefile", Args, Next_Arg, Prim_Id, Sec_Id);
+      if not Setup_Libraries (True) then
+         return;
       end if;
-      New_Line;
-      Put_Line ("# Command used to generate this makefile:");
-      Put ("# ");
-      Put (Command_Name);
-      for I in 1 .. Argument_Count loop
-         Put (' ');
-         Put (Argument (I));
-      end loop;
-      New_Line;
+      Files_List := Build_Dependence (Prim_Id, Sec_Id);
+
+      Ghdllocal.Gen_Makefile_Disp_Header;
 
       New_Line;
 
-      Put ("GHDL=");
-      Put_Line (Command_Name);
-
-      --  Extract options for command line.
-      Put ("GHDLFLAGS=");
-      for I in 2 .. Argument_Count loop
-         declare
-            Arg : constant String := Argument (I);
-         begin
-            if Arg (1) = '-' then
-               if (Arg'Length > 10 and then Arg (1 .. 10) = "--workdir=")
-                 or else (Arg'Length > 7 and then Arg (1 .. 7) = "--ieee=")
-                 or else (Arg'Length > 6 and then Arg (1 .. 6) = "--std=")
-                 or else (Arg'Length > 7 and then Arg (1 .. 7) = "--work=")
-                 or else (Arg'Length > 2 and then Arg (1 .. 2) = "-P")
-                 or else (Arg'Length > 2 and then Arg (1 .. 2) = "-f")
-                 or else (Arg'Length > 6 and then Arg (1 .. 6) = "--std=")
-               then
-                  Put (" ");
-                  Put (Arg);
-               end if;
-            end if;
-         end;
-      end loop;
-      New_Line;
+      Ghdllocal.Gen_Makefile_Disp_Variables;
 
       Put ("GHDLRUNFLAGS=");
       for I in Next_Arg .. Args'Last loop
@@ -869,10 +912,10 @@ package body Ghdlcomp is
       Put_Line ("# Elaborate target.  Almost useless");
       Put_Line ("elab : force");
       Put (HT & "$(GHDL) -c $(GHDLFLAGS) -e ");
-      Put (Prim_Name.all);
-      if Sec_Name /= null then
+      Put (Image (Prim_Id));
+      if Sec_Id /= Null_Identifier then
          Put (' ');
-         Put (Sec_Name.all);
+         Put (Image (Sec_Id));
       end if;
       New_Line;
       New_Line;
@@ -880,10 +923,10 @@ package body Ghdlcomp is
       Put_Line ("# Run target");
       Put_Line ("run : force");
       Put (HT & "$(GHDL) -c $(GHDLFLAGS) -r ");
-      Put (Prim_Name.all);
-      if Sec_Name /= null then
+      Put (Image (Prim_Id));
+      if Sec_Id /= Null_Identifier then
          Put (' ');
-         Put (Sec_Name.all);
+         Put (Image (Sec_Id));
       end if;
       Put (" $(GHDLRUNFLAGS)");
       New_Line;

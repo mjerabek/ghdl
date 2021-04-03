@@ -1,22 +1,21 @@
 --  Iir to ortho translator.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
-with Errorout; use Errorout;
-with Iirs_Utils; use Iirs_Utils;
+--  along with this program.  If not, see <gnu.org/licenses>.
+
+with Vhdl.Errors; use Vhdl.Errors;
+with Vhdl.Utils; use Vhdl.Utils;
 with Translation; use Translation;
 with Trans.Chap2;
 with Trans.Chap3;
@@ -162,7 +161,8 @@ package body Trans.Chap1 is
       end if;
 
       if Global_Storage = O_Storage_External then
-         --  Entity declaration subprograms.
+         --  Entity declaration subprograms as they can be called by the
+         --  architectures.
          Chap4.Translate_Declaration_Chain_Subprograms
            (Entity, Subprg_Translate_Spec_And_Body);
       else
@@ -734,6 +734,7 @@ package body Trans.Chap1 is
                High        : O_Dnode;
                If_Blk      : O_If_Block;
                Label       : O_Snode;
+               Rng_Idx     : Mnode;
             begin
                Open_Temp;
                Rng := Stabilize (Chap3.Type_To_Range (Iter_Type));
@@ -742,21 +743,20 @@ package body Trans.Chap1 is
                  (Dv2M (Slice, Type_Info, Mode_Value,
                         Type_Info.B.Range_Type, Type_Info.B.Range_Ptr_Type),
                   Get_Suffix (Spec));
+               Rng_Idx := Lv2M (New_Selected_Element
+                                (New_Obj (Slice), Type_Info.B.Range_Left),
+                                Type_Info, Mode_Value);
                Left := Create_Temp_Init
                  (Ghdl_Index_Type,
                   Chap6.Translate_Index_To_Offset
-                    (Rng,
-                     New_Value (New_Selected_Element
-                                  (New_Obj (Slice), Type_Info.B.Range_Left)),
-                     Spec, Iter_Type, Spec));
+                    (Rng, Rng_Idx, Spec, Iter_Type, Spec));
+               Rng_Idx := Lv2M (New_Selected_Element
+                                (New_Obj (Slice), Type_Info.B.Range_Right),
+                                Type_Info, Mode_Value);
                Right := Create_Temp_Init
                  (Ghdl_Index_Type,
                   Chap6.Translate_Index_To_Offset
-                    (Rng,
-                     New_Value (New_Selected_Element
-                                  (New_Obj (Slice),
-                                   Type_Info.B.Range_Right)),
-                     Spec, Iter_Type, Spec));
+                    (Rng, Rng_Idx, Spec, Iter_Type, Spec));
                Index := Create_Temp (Ghdl_Index_Type);
                High := Create_Temp (Ghdl_Index_Type);
                Start_If_Stmt
@@ -769,27 +769,23 @@ package body Trans.Chap1 is
                                         Type_Info.B.Range_Dir)),
                                   Ghdl_Bool_Type));
                --  Same direction, so left to right.
-               New_Assign_Stmt (New_Obj (Index),
-                                New_Value (New_Obj (Left)));
-               New_Assign_Stmt (New_Obj (High),
-                                New_Value (New_Obj (Right)));
+               New_Assign_Stmt (New_Obj (Index), New_Obj_Value (Left));
+               New_Assign_Stmt (New_Obj (High), New_Obj_Value (Right));
                New_Else_Stmt (If_Blk);
                --  Opposite direction, so right to left.
-               New_Assign_Stmt (New_Obj (Index),
-                                New_Value (New_Obj (Right)));
-               New_Assign_Stmt (New_Obj (High),
-                                New_Value (New_Obj (Left)));
+               New_Assign_Stmt (New_Obj (Index), New_Obj_Value (Right));
+               New_Assign_Stmt (New_Obj (High), New_Obj_Value (Left));
                Finish_If_Stmt (If_Blk);
 
                --  Loop.
                Start_Loop_Stmt (Label);
                Gen_Exit_When
                  (Label, New_Compare_Op (ON_Gt,
-                                         New_Value (New_Obj (Index)),
-                                         New_Value (New_Obj (High)),
+                                         New_Obj_Value (Index),
+                                         New_Obj_Value (High),
                                          Ghdl_Bool_Type));
                Open_Temp;
-               Gen_Subblock_Call (New_Value (New_Obj (Index)), True);
+               Gen_Subblock_Call (New_Obj_Value (Index), True);
                Close_Temp;
                Inc_Var (Index);
                Finish_Loop_Stmt (Label);
@@ -953,6 +949,10 @@ package body Trans.Chap1 is
       Push_Architecture_Scope (Arch, Config_Info.Config_Instance);
 
       if Get_Kind (Config) = Iir_Kind_Configuration_Declaration then
+         --  The configuration may depend on packages.  Be sure they are
+         --  elaborated.
+         Chap2.Elab_Dependence (Get_Design_Unit (Config));
+
          Open_Temp;
          Chap4.Elab_Declaration_Chain (Config, Final);
          Close_Temp;

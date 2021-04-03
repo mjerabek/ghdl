@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) - VPI interface.
 --  Copyright (C) 2002 - 2014 Tristan Gingold & Felix Bertram
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 -- Description: VPI interface for GRT runtime
 --              the main purpose of this code is to interface with the
@@ -55,6 +53,7 @@ with Grt.Rtis_Types;
 with Grt.Std_Logic_1164; use Grt.Std_Logic_1164;
 with Grt.Callbacks; use Grt.Callbacks;
 with Grt.Vstrings; use Grt.Vstrings;
+with Version;
 
 package body Grt.Vpi is
    --  The VPI interface requires libdl (dlopen, dlsym) to be linked in.
@@ -65,7 +64,8 @@ package body Grt.Vpi is
    --errNoString:      constant String := "grt-vcd.adb: no string" & NUL;
 
    Product : constant String := "GHDL" & NUL;
-   Version : constant String := "0.1" & NUL;
+   GhdlVersion : constant String :=
+      Version.Ghdl_Ver & " " & Version.Ghdl_Release & NUL;
 
    --  If true, emit traces
    Flag_Trace : Boolean := False;
@@ -347,6 +347,15 @@ package body Grt.Vpi is
 -- * * *   V P I   f u n c t i o n s   * * * * * * * * * * * * * * * * * * * *
 -------------------------------------------------------------------------------
 
+   --  Free an handler, when it was not passed by reference.
+   procedure Free_Copy (H : vpiHandle)
+   is
+      Copy : vpiHandle;
+   begin
+      Copy := H;
+      Free (Copy);
+   end Free_Copy;
+
    ------------------------------------------------------------------------
    -- vpiHandle  vpi_iterate(int type, vpiHandle ref)
    -- Obtain an iterator handle to objects with a one-to-many relationship.
@@ -565,6 +574,15 @@ package body Grt.Vpi is
                   return vpiParameter;
                end if;
             end;
+         when VhpiConstDeclK =>
+            declare
+               Info : Verilog_Wire_Info;
+            begin
+               Get_Verilog_Wire (Res, Info);
+               if Info.Vtype /= Vcd_Bad then
+                  return vpiConstant;
+               end if;
+            end;
          when others =>
             null;
       end case;
@@ -587,6 +605,9 @@ package body Grt.Vpi is
          when vpiParameter =>
             return new struct_vpiHandle'(mType => vpiParameter,
                                          Ref => Res);
+         when vpiConstant =>
+            return new struct_vpiHandle'(mType => vpiConstant,
+                                         Ref => Res);
          when others =>
             return null;
       end case;
@@ -604,6 +625,7 @@ package body Grt.Vpi is
       R : vpiHandle;
       Kind, Expected_Kind : Integer;
    begin
+      --  End of scan reached.  Avoid a crash in case of misuse.
       if Iter = null then
          return null;
       end if;
@@ -617,6 +639,7 @@ package body Grt.Vpi is
                Iter.Ref := Null_Handle;
                return R;
             when VhpiUndefined =>
+               --  End of iteration.
                return null;
             when others =>
                --  Fall through.
@@ -641,11 +664,14 @@ package body Grt.Vpi is
          exit when Error /= AvhpiErrorOk;
 
          Kind := Vhpi_Handle_To_Vpi_Prop (Res);
-         if Kind /= vpiUndefined and then (Kind = Expected_Kind or
-           (Kind = vpiPort and Expected_Kind = vpiNet)) then
+         if Kind /= vpiUndefined
+           and then (Kind = Expected_Kind
+                       or(Kind = vpiPort and Expected_Kind = vpiNet))
+         then
             return Build_vpiHandle (Res, Kind);
          end if;
       end loop;
+
       return null;
    end Vpi_Scan_Internal;
 
@@ -664,6 +690,15 @@ package body Grt.Vpi is
       if Flag_Trace then
          Trace (Res);
          Trace_Newline;
+      end if;
+
+      --  IEEE 1364-2005 27.5 vpi_free_object()
+      --  The iterator object shall automatically be freed when vpi_scan()
+      --  returns NULL because it has either completed an object traversal
+      --  or encountered an error condition.
+      --  Free the iterator.
+      if Res = null then
+         Free_Copy (Iter);
       end if;
 
       return Res;
@@ -801,6 +836,17 @@ package body Grt.Vpi is
    -- see IEEE 1364-2001, chapter 27.14, page 675
    Buf_Value : Vstring;
 
+   procedure Append_Bin (V : Ghdl_U64; Ndigits : Natural) is
+   begin
+      for I in reverse 0 .. Ndigits - 1 loop
+         if (Shift_Right (V, I) and 1) /= 0 then
+            Append (Buf_Value, '1');
+         else
+            Append (Buf_Value, '0');
+         end if;
+      end loop;
+   end Append_Bin;
+
    type Map_Type_E8 is array (Ghdl_E8 range 0..8) of character;
    Map_Std_E8: constant Map_Type_E8 := "UX01ZWLH-";
 
@@ -825,7 +871,8 @@ package body Grt.Vpi is
       case Vhpi_Get_Kind (Obj) is
          when VhpiPortDeclK
            | VhpiSigDeclK
-           | VhpiGenericDeclK =>
+           | VhpiGenericDeclK
+           | VhpiConstDeclK =>
             null;
          when others =>
             return null;
@@ -843,31 +890,32 @@ package body Grt.Vpi is
 
       case Info.Vtype is
          when Vcd_Bad
-           | Vcd_Enum8
            | Vcd_Float64 =>
             return null;
+         when Vcd_Enum8 =>
+            declare
+               V : Ghdl_E8;
+            begin
+               V := Verilog_Wire_Val (Info).E8;
+               Append_Bin (Ghdl_U64 (V), 8);
+            end;
          when Vcd_Integer32 =>
             declare
                V : Ghdl_U32;
             begin
                V := Verilog_Wire_Val (Info).E32;
-               for I in 0 .. 31 loop
-                  if (V and 16#8000_0000#) /= 0 then
-                     Append (Buf_Value, '1');
-                  else
-                     Append (Buf_Value, '0');
-                  end if;
-                  V := Shift_Left (V, 1);
-               end loop;
+               Append_Bin (Ghdl_U64 (V), 32);
             end;
          when Vcd_Bit
-           | Vcd_Bool
-           | Vcd_Bitvector =>
+           | Vcd_Bool =>
+            Append (Buf_Value, Map_Std_B1 (Verilog_Wire_Val (Info).B1));
+         when Vcd_Bitvector =>
             for J in 0 .. Len - 1 loop
                Append (Buf_Value, Map_Std_B1 (Verilog_Wire_Val (Info, J).B1));
             end loop;
-         when Vcd_Stdlogic
-           | Vcd_Stdlogic_Vector =>
+         when Vcd_Stdlogic =>
+            Append (Buf_Value, E8_To_Char (Verilog_Wire_Val (Info).E8));
+         when Vcd_Stdlogic_Vector =>
             for J in 0 .. Len - 1 loop
                Append (Buf_Value, E8_To_Char (Verilog_Wire_Val (Info, J).E8));
             end loop;
@@ -964,7 +1012,10 @@ package body Grt.Vpi is
                     Ghdl_B1 (Vec (J) = '1' or Vec (J) = 'H');
                begin
                   case Info.Val is
-                     when Vcd_Effective | Vcd_Driving =>
+                     when Vcd_Effective =>
+                        Ghdl_Signal_Force_Effective_B1
+                          (To_Signal_Arr_Ptr (Info.Ptr)(J), V);
+                     when Vcd_Driving =>
                         --  Force_Driving sets both the driving and the
                         --  effective value.
                         Ghdl_Signal_Force_Driving_B1
@@ -981,9 +1032,10 @@ package body Grt.Vpi is
                   V : constant Ghdl_E8 := Std_Ulogic'Pos (Vec (J));
                begin
                   case Info.Val is
-                     when Vcd_Effective | Vcd_Driving =>
-                        --  Force_Driving sets both the driving and the
-                        --  effective value.
+                     when Vcd_Effective =>
+                        Ghdl_Signal_Force_Effective_E8
+                          (To_Signal_Arr_Ptr (Info.Ptr)(J), V);
+                     when Vcd_Driving =>
                         Ghdl_Signal_Force_Driving_E8
                           (To_Signal_Arr_Ptr (Info.Ptr)(J), V);
                      when Vcd_Variable =>
@@ -992,7 +1044,27 @@ package body Grt.Vpi is
                end;
             end loop;
          when Vcd_Enum8 =>
-            null;
+            declare
+               V : Ghdl_E8;
+            begin
+               V := 0;
+               for I in reverse Vec'Range loop
+                  if Vec (I) = '1' then
+                     --  Ok, handles 'X', 'Z'... like '0'.
+                     V := V or Shift_Left (1, Natural (Vec'Last - I));
+                  end if;
+               end loop;
+               case Info.Val is
+                  when Vcd_Effective =>
+                     Ghdl_Signal_Force_Effective_E8
+                       (To_Signal_Arr_Ptr (Info.Ptr)(0), V);
+                  when Vcd_Driving =>
+                     Ghdl_Signal_Force_Driving_E8
+                       (To_Signal_Arr_Ptr (Info.Ptr)(0), V);
+                  when Vcd_Variable =>
+                     Verilog_Wire_Val (Info).E8 := V;
+               end case;
+            end;
          when Vcd_Integer32
            | Vcd_Float64 =>
             null;
@@ -1128,6 +1200,23 @@ package body Grt.Vpi is
          when vpiObjTypeVal =>
             dbgPut_Line ("vpi_put_value: vpiObjTypeVal");
          when vpiBinStrVal =>
+            --  Convert LEN (number of elements) to number of bits.
+            case Info.Vtype is
+               when Vcd_Bad =>
+                  null;
+               when Vcd_Bit
+                 | Vcd_Bool
+                 | Vcd_Bitvector
+                 | Vcd_Stdlogic
+                 | Vcd_Stdlogic_Vector =>
+                  null;
+               when Vcd_Enum8 =>
+                  Len := Len * 8;
+               when Vcd_Integer32 =>
+                  Len := Len * 32;
+               when Vcd_Float64 =>
+                  Len := Len * 64;
+            end case;
             Ii_Vpi_Put_Value_Bin_Str (Info, Len, aValue.Str);
             -- dbgPut_Line ("vpi_put_value: vpiBinStrVal");
          when vpiOctStrVal =>
@@ -1266,9 +1355,39 @@ package body Grt.Vpi is
    --  Wrapper
    procedure Call_Callback (Arg : System.Address)
    is
-      Hand : constant vpiHandle := To_vpiHandle (Arg);
+      Hand : vpiHandle;
    begin
+      Hand := To_vpiHandle (Arg);
+
+      --  Increase/decrease the reference counter as it is referenced by HAND.
+      Hand.Cb_Refcnt := Hand.Cb_Refcnt + 1;
       Execute_Callback (Hand);
+      Hand.Cb_Refcnt := Hand.Cb_Refcnt - 1;
+
+      --  Free handlers if called once.
+      case Hand.Cb.Reason is
+         when cbEndOfCompile
+           |  cbStartOfSimulation
+           |  cbEndOfSimulation
+           |  cbReadOnlySynch
+           |  cbReadWriteSynch
+           |  cbAfterDelay
+           |  cbNextSimTime =>
+            pragma Assert (Hand.Cb_Refcnt = 1);
+            --  The handler has been removed from the queue, so the reference
+            --  counter has to be decremented and its value must be 0.  Time
+            --  to free it.
+            Free (Hand);
+         when cbValueChange =>
+            --  The handler hasn't been removed from the queue, unless the
+            --  user did it while the callback was executed.  If so, the
+            --  reference counter must now be 0 and we can free it.
+            if Hand.Cb_Refcnt = 0 then
+               Free (Hand);
+            end if;
+         when others =>
+            null;
+      end case;
    end Call_Callback;
 
    procedure Call_Valuechange_Callback (Arg : System.Address)
@@ -1324,6 +1443,9 @@ package body Grt.Vpi is
       Res := new struct_vpiHandle (vpiCallback);
       Res.Cb := Data.all;
 
+      --  There is one reference to the callback as it is registered.
+      Res.Cb_Refcnt := 1;
+
       case Data.Reason is
          when cbEndOfCompile =>
             Append_Callback (g_cbEndOfCompile, Res);
@@ -1356,7 +1478,7 @@ package body Grt.Vpi is
               (Cb_Next_Time_Step, Res.Cb_Handle, Oneshot,
                Call_Callback'Access, To_Address (Res));
          when others =>
-            dbgPut_Line ("vpi_register_cb: unknown reason");
+            dbgPut_Line ("vpi_register_cb: unknown callback reason");
             Free (Res);
       end case;
 
@@ -1383,11 +1505,15 @@ package body Grt.Vpi is
       Res := 1;
       Ref_Copy := Ref;
       case Ref.Cb.Reason is
-         when cbValueChange =>
+         when cbValueChange
+           |  cbReadWriteSynch
+           |  cbReadOnlySynch =>
             Delete_Callback (Ref.Cb_Handle);
-         when cbReadWriteSynch
-           | cbReadOnlySynch =>
-            Delete_Callback (Ref.Cb_Handle);
+            Ref.Cb_Refcnt := Ref.Cb_Refcnt - 1;
+            if Ref.Cb_Refcnt > 0 then
+               --  Do not free REF.
+               Ref_Copy := null;
+            end if;
          when others =>
             Res := 0;
             Ref_Copy := null;
@@ -1419,8 +1545,16 @@ package body Grt.Vpi is
          Trace (")");
          Trace_Newline;
       end if;
-      Ref_Copy := aRef;
-      Free (Ref_Copy);
+
+      case aRef.mType is
+         when vpiCallback =>
+            --  Callback are automatically freed.
+            null;
+         when others =>
+            Ref_Copy := aRef;
+            Free (Ref_Copy);
+      end case;
+
       return 1;
    end vpi_free_object;
 
@@ -1430,17 +1564,19 @@ package body Grt.Vpi is
 
    -- int vpi_get_vlog_info(p_vpi_vlog_info vlog_info_p)
    function vpi_get_vlog_info (info : p_vpi_vlog_info) return integer is
+      function To_Address is new Ada.Unchecked_Conversion
+         (Source => Grt.Options.Argv_Type, Target => System.Address);
    begin
       if Flag_Trace then
          Trace_Start ("vpi_get_vlog_info");
          Trace_Newline;
       end if;
 
-      info.all := (Argc => 0,
-                   Argv => Null_Address,
+      info.all := (Argc => Options.Argc,
+                   Argv => To_Address(Options.Argv),
                    Product => To_Ghdl_C_String (Product'Address),
-                   Version => To_Ghdl_C_String (Version'Address));
-      return 0;
+                   Version => To_Ghdl_C_String (GhdlVersion'Address));
+      return 1;
    end vpi_get_vlog_info;
 
    -- vpiHandle vpi_handle_by_index(vpiHandle ref, int index)
@@ -1514,6 +1650,7 @@ package body Grt.Vpi is
       Err : AvhpiErrorT;
       Prop : Integer;
       Res : vpiHandle;
+      Escaped : Boolean;
    begin
       --  Extract the start point.
       if Scope = null then
@@ -1533,9 +1670,19 @@ package body Grt.Vpi is
             C : Character;
          begin
             E := B;
+            Escaped := Name (E) = '\';
             loop
                C := Name (E + 1);
-               exit when C = NUL or C = '.';
+
+               --  '.' is a separator when not inside extended identifiers.
+               exit when C = NUL or (C = '.' and not Escaped);
+
+               if C = '\' then
+                  --  Start or end of extended identifiers.
+                  --  '\' within an extended identifier is doubled, so like
+                  --  if there were two extended identifiers.
+                  Escaped := not Escaped;
+               end if;
                E := E + 1;
             end loop;
          end;
@@ -1695,8 +1842,16 @@ package body Grt.Vpi is
 -- * * *   G H D L   h o o k s   * * * * * * * * * * * * * * * * * * * * * * *
 ------------------------------------------------------------------------------
 
-   --  VCD filename.
-   Vpi_Filename : String_Access := null;
+
+   type Lib_Cell;
+   type Lib_Access is access Lib_Cell;
+
+   type Lib_Cell is record
+      File_Name : String_Access;
+      Next : Lib_Access;
+   end record;
+
+   Vpi_Libraries : Lib_Access := null;
 
    ------------------------------------------------------------------------
    --  Return TRUE if OPT is an option for VPI.
@@ -1708,10 +1863,32 @@ package body Grt.Vpi is
          return False;
       end if;
       if Opt'Length > 6 and then Opt (F + 5) = '=' then
-         --  Add an extra NUL character.
-         Vpi_Filename := new String (1 .. Opt'Length - 6 + 1);
-         Vpi_Filename (1 .. Opt'Length - 6) := Opt (F + 6 .. Opt'Last);
-         Vpi_Filename (Vpi_Filename'Last) := NUL;
+         declare
+            Lib : Lib_Access;
+            File : String_Access;
+         begin
+            -- Store library info.
+            Lib := new Lib_Cell;
+            --  Add an extra NUL character.
+            File := new String (1 .. Opt'Length - 6 + 1);
+            File (1 .. Opt'Length - 6) := Opt (F + 6 .. Opt'Last);
+            File (File'Last) := NUL;
+            Lib.File_Name := File;
+
+            -- Add new library to the list.
+            if Vpi_Libraries = null then
+               Vpi_Libraries := Lib;
+            else
+               declare
+                  L : Lib_Access := Vpi_Libraries;
+               begin
+                  while L.Next /= null loop
+                     L := L.Next;
+                  end loop;
+                  L.Next := Lib;
+               end;
+            end if;
+         end;
          return True;
       elsif Opt'Length >= 11 and then Opt (F + 5 .. F + 10) = "-trace" then
          if Opt'Length > 11 and then Opt (F + 11) = '=' then
@@ -1747,8 +1924,9 @@ package body Grt.Vpi is
    ------------------------------------------------------------------------
    procedure Vpi_Help is
    begin
-      Put_Line (" --vpi=FILENAME     load VPI module");
-      Put_Line (" --vpi-trace[=FILE] trace vpi calls to FILE");
+      Put_Line (" --vpi=FILENAME      load VPI library");
+      Put_Line
+        (" --vpi-trace[=FILE]  trace vpi calls to stdout or provided FILE");
    end Vpi_Help;
 
    ------------------------------------------------------------------------
@@ -1760,12 +1938,19 @@ package body Grt.Vpi is
 
    procedure Vpi_Init
    is
+      Lib : Lib_Access := Vpi_Libraries;
    begin
-      if Vpi_Filename /= null then
-         if LoadVpiModule (Vpi_Filename.all'Address) /= 0 then
-            Error ("cannot load VPI module");
-         end if;
+      if Lib = null then
+         return;
       end if;
+      while Lib /= null loop
+         if LoadVpiModule (Lib.File_Name.all'Address) /= 0 then
+            Error_S ("cannot load VPI module '");
+            Diag_C (Lib.File_Name.all);
+            Error_E ("'");
+         end if;
+         Lib := Lib.Next;
+      end loop;
    end Vpi_Init;
 
    ------------------------------------------------------------------------
@@ -1775,7 +1960,7 @@ package body Grt.Vpi is
       Res : Integer;
       pragma Unreferenced (Res);
    begin
-      if Vpi_Filename = null then
+      if Vpi_Libraries = null then
          return;
       end if;
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #  Generate the body of ieee.std_logic_1164 from a template.
 #  This file is part of GHDL.
-#  Copyright (C) 2015 Tristan Gingold
+#  Copyright (C) 2015-2021 Tristan Gingold
 #
 #  GHDL is free software; you can redistribute it and/or modify it under
 #  the terms of the GNU General Public License as published by the Free
@@ -14,10 +14,9 @@
 #  for more details.
 #
 #  You should have received a copy of the GNU General Public License
-#  along with GCC; see the file COPYING2.  If not see
+#  along with GHDL; see the file COPYING.md.  If not see
 #  <http://www.gnu.org/licenses/>.
 
-import re
 import sys
 
 # Supported versions
@@ -241,7 +240,7 @@ def disp_shift_funcs(func, typ):
     gen_shift(func != "sll", '-', '+')
     w("""    end if;
     return res;
-  end "{0}";\n""".format(func, typ))
+  end "{0}";\n""".format(func))
 
 def gen_rot(is_left, plus, minus):
     if is_left:
@@ -280,7 +279,6 @@ def disp_all_log_funcs(version):
         disp_scalar_binary(f)
     disp_scalar_unary("not")
     for v in vec_types:
-        typ = "std_" + v + "_vector"
         for f in binary_funcs:
             disp_vec_binary(f, v)
         disp_vec_unary("not", v)
@@ -385,17 +383,17 @@ def disp_conv_bv_vec(typ, v):
     "Generate function body for bit vector conversion"
     utyp = typ.upper();
     w("""
-  function to_{1} (b : bit_vector) return std_{2}_vector
+  function to_{0} (b : bit_vector) return std_{1}_vector
   is
     subtype res_range is natural range 1 to b'length;
     alias ba : bit_vector (res_range) is b;
-    variable res : std_{2}_vector (res_range);
+    variable res : std_{1}_vector (res_range);
   begin
     for i in res_range loop
       res (i) := bit_to_x01 (ba (i));
     end loop;
     return res;
-  end to_{1};\n""".format(typ, utyp, v))
+  end to_{0};\n""".format(utyp, v))
 
 def disp_conv_b_t(typ):
     "Generate function body for bit conversion"
@@ -506,7 +504,7 @@ pats = {'  @TAB\n' : disp_tables,
         '  @NORM\n': disp_all_norm_funcs,
         '  @ISX\n' : disp_all_isx_funcs }
 
-spec_file='std_logic_1164.vhdl'
+spec_file='std_logic_1164.proto'
 proto_file='std_logic_1164-body.proto'
 
 def gen_body(filename, version):
@@ -553,15 +551,15 @@ def copy_spec(dest, version):
     out.close()
 
 # Copy spec
-copy_spec('std_logic_1164.v87', V87)
-copy_spec('std_logic_1164.v93', V93)
-copy_spec('std_logic_1164.v08', V08)
+copy_spec('v87/std_logic_1164.vhdl', V87)
+copy_spec('v93/std_logic_1164.vhdl', V93)
+copy_spec('v08/std_logic_1164.vhdl', V08)
 
 # Generate bodies
-gen_body('std_logic_1164-body.v87', V87)
+gen_body('v87/std_logic_1164-body.vhdl', V87)
 
 binary_funcs.append("xnor")
-gen_body('std_logic_1164-body.v93', V93)
+gen_body('v93/std_logic_1164-body.vhdl', V93)
 
 vec_types = ['ulogic']
-gen_body('std_logic_1164-body.v08', V08)
+gen_body('v08/std_logic_1164-body.vhdl', V08)

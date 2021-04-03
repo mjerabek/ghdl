@@ -1,20 +1,18 @@
 --  Efficient expandable one dimensional array type.
 --  Copyright (C) 2015 - 2016 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 --  This package mimics GNAT.Table, but:
 --  - the index type can be any discrete type (in particular a modular type)
@@ -31,10 +29,6 @@ generic
    --  Table_Index_Type'First, as otherwise Last may raise constraint error
    --  when the table is empty.
    Table_Low_Bound : Table_Index_Type;
-
-   --  Initial number of elements.
-   Table_Initial   : Positive;
-
 package Dyn_Tables is
    --  Ada type for the array.
    type Table_Type is
@@ -64,7 +58,7 @@ package Dyn_Tables is
    end record;
 
    --  Initialize the table.  This must be done by users.
-   procedure Init (T : in out Instance);
+   procedure Init (T : in out Instance; Table_Initial : Positive);
 
    --  Logical bounds of the array.
    First : constant Table_Index_Type := Table_Low_Bound;

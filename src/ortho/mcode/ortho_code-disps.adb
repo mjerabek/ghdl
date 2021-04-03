@@ -1,20 +1,18 @@
 --  Mcode back-end for ortho - Internal tree dumper.
 --  Copyright (C) 2006 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with Ada.Text_IO; use Ada.Text_IO;
 with Ortho_Code.Debug;
 with Ortho_Code.Consts;
@@ -291,7 +289,7 @@ package body Ortho_Code.Disps is
             Put ("alloca (");
             Disp_Expr (Get_Expr_Operand (Expr));
             Put (")");
-         when OE_Conv =>
+         when OE_Conv_Ov =>
             Disp_Type (Get_Conv_Type (Expr));
             Put ("'conv (");
             Disp_Expr (Get_Expr_Operand (Expr));
@@ -400,10 +398,20 @@ package body Ortho_Code.Disps is
             Put ("[");
             Put_Trim (Uns32'Image (Get_Type_Subarray_Length (Atype)));
             Put ("]");
+            Put (" ");
+            Put ("of");
+            Put (" ");
+            Disp_Type (Get_Type_Subarray_Element (Atype));
          when OT_Record =>
             Put_Line ("record");
             Disp_Fields (1, Atype);
             Put ("end record");
+         when OT_Subrecord =>
+            Put_Line ("subrecord");
+            Disp_Type (Get_Type_Subrecord_Base (Atype));
+            Put ("(");
+            Disp_Fields (1, Atype);
+            Put (")");
          when OT_Union =>
             Put_Line ("union");
             Disp_Fields (1, Atype);

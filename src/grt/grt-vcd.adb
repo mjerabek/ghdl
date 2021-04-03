@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) - VCD generator.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -49,7 +47,7 @@ with Grt.Rtis; use Grt.Rtis;
 with Grt.Rtis_Addr; use Grt.Rtis_Addr;
 with Grt.Rtis_Utils; use Grt.Rtis_Utils;
 with Grt.Rtis_Types; use Grt.Rtis_Types;
-with Grt.Vstrings;
+with Grt.To_Strings;
 with Grt.Wave_Opt; use Grt.Wave_Opt;
 with Grt.Wave_Opt.Design; use Grt.Wave_Opt.Design;
 with Grt.Fcvt;
@@ -165,7 +163,7 @@ package body Grt.Vcd is
       Str : String (1 .. 11);
       First : Natural;
    begin
-      Vstrings.To_String (Str, First, V);
+      To_Strings.To_String (Str, First, V);
       Vcd_Put (Str (First .. Str'Last));
    end Vcd_Put_I32;
 
@@ -341,6 +339,7 @@ package body Grt.Vcd is
       Rti : Ghdl_Rti_Access;
       Error : AvhpiErrorT;
       Sig_Addr : Address;
+      Base : Address;
       Bounds : Address;
 
       Kind : Vcd_Var_Type;
@@ -356,7 +355,8 @@ package body Grt.Vcd is
 
       Rti := Avhpi_Get_Rti (Sig_Type);
       Sig_Addr := Avhpi_Get_Address (Sig);
-      Object_To_Base_Bounds (Rti, Sig_Addr, Sig_Addr, Bounds);
+      Object_To_Base_Bounds (Rti, Sig_Addr, Base, Bounds);
+      Sig_Addr := Base;
 
       case Rti.Kind is
          when Ghdl_Rtik_Type_B1
@@ -416,7 +416,8 @@ package body Grt.Vcd is
             end case;
          when VhpiSigDeclK =>
             Val := Vcd_Effective;
-         when VhpiGenericDeclK =>
+         when VhpiGenericDeclK
+           | VhpiConstDeclK =>
             Val := Vcd_Variable;
          when others =>
             Info := (Vtype => Vcd_Bad,
@@ -821,7 +822,7 @@ package body Grt.Vcd is
       First : Natural;
    begin
       Vcd_Putc ('#');
-      Vstrings.To_String (Str, First, Ghdl_I64 (Current_Time));
+      To_Strings.To_String (Str, First, Ghdl_I64 (Current_Time));
       Vcd_Put (Str (First .. Str'Last));
       Vcd_Newline;
    end Vcd_Put_Time;

@@ -1,22 +1,21 @@
 --  PSL - Nodes definition
 --  Copyright (C) 2002-2016 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Types; use Types;
+with PSL.Types; use PSL.Types;
 
 package PSL.Nodes is
    type Nkind is
@@ -55,6 +54,7 @@ package PSL.Nodes is
       N_Imp_Seq,         --  |=>
       N_Overlap_Imp_Seq, --  |->
       N_Log_Imp_Prop,    --  ->
+      N_Log_Equiv_Prop,  --  <->
       N_Next,
       N_Next_A,
       N_Next_E,
@@ -66,6 +66,7 @@ package PSL.Nodes is
       N_Before,
       N_Or_Prop,
       N_And_Prop,
+      N_Paren_Prop,
 
       --  Sequences/SERE.
       N_Braced_SERE,
@@ -84,11 +85,14 @@ package PSL.Nodes is
       N_Equal_Repeat_Seq,
 
       --  Boolean layer.
+      N_Paren_Bool,
       N_Not_Bool,
       N_And_Bool,
       N_Or_Bool,
       N_Imp_Bool,       -- ->
+      N_Equiv_Bool,     -- <->
       N_HDL_Expr,
+      N_HDL_Bool,
       N_False,
       N_True,
       N_EOS,
@@ -99,8 +103,10 @@ package PSL.Nodes is
      );
    for Nkind'Size use 8;
 
-   subtype N_Booleans is Nkind range N_Not_Bool .. N_True;
+   subtype N_Booleans is Nkind range N_Paren_Bool .. N_True;
    subtype N_Sequences is Nkind range N_Braced_SERE .. N_Equal_Repeat_Seq;
+
+   subtype N_HDLs is Nkind range N_HDL_Expr .. N_HDL_Bool;
 
    type PSL_Types is
      (
@@ -301,6 +307,7 @@ package PSL.Nodes is
    --   Get/Set_Property (Field4)
 
    -- N_Log_Imp_Prop (Short)
+   -- N_Log_Equiv_Prop (Short)
    --
    --   Get/Set_Left (Field1)
    --
@@ -334,6 +341,10 @@ package PSL.Nodes is
    --
    --   Get/Set_Right (Field2)
 
+   -- N_Paren_Prop (Short)
+   --
+   --   Get/Set_Property (Field4)
+
    -- N_Until (Short)
    -- N_Before (Short)
    --
@@ -365,13 +376,33 @@ package PSL.Nodes is
    --   Get/Set_Boolean (Field3)
 
 
-   -- N_HDL_Expr (Short)
+   -- N_HDL_Bool (Short)
+   --  An HDL expression of boolean type, that could be hashed.
    --
    --   Get/Set_Presence (State1)
    --
    --   Get/Set_HDL_Node (Field1)
    --
    --   Get/Set_HDL_Index (Field2)
+   --
+   --   Get/Set_Hash (Field5)
+   --
+   --   Get/Set_Hash_Link (Field6)
+
+   -- N_HDL_Expr (Short)
+   --  An HDL expression.  Just a proxy to the N_HDL_Bool.  The node
+   --  is removed when rewritten.  This node is present so that denoting
+   --  names are kept in the PSL tree.
+   --
+   --   Get/Set_HDL_Node (Field1)
+   --
+   --   Get/Set_HDL_Hash (Field5)
+
+   -- N_Paren_Bool (Short)
+   --
+   --   Get/Set_Presence (State1)
+   --
+   --   Get/Set_Boolean (Field3)
    --
    --   Get/Set_Hash (Field5)
    --
@@ -390,6 +421,7 @@ package PSL.Nodes is
    -- N_And_Bool (Short)
    -- N_Or_Bool (Short)
    -- N_Imp_Bool (Short)
+   -- N_Equiv_Bool (Short)
    --
    --   Get/Set_Presence (State1)
    --
@@ -425,12 +457,12 @@ package PSL.Nodes is
 
    subtype NFA is Types.PSL_NFA;
 
-   subtype HDL_Node is Types.Int32;
+   subtype HDL_Node is Int32;
    HDL_Null : constant HDL_Node := 0;
 
    -- General methods.
 
-   procedure Init;
+   procedure Init (Loc : Location_Type);
 
    --  Get the number of the last node.
    --  To be used to size lateral tables.
@@ -447,6 +479,7 @@ package PSL.Nodes is
    --  Note: use field Location
    function Get_Location (N : Node) return Location_Type;
    procedure Set_Location (N : Node; Loc : Location_Type);
+   procedure Copy_Location (N : Node; Src : Node);
 
    function Get_Kind (N : Node) return Nkind;
    pragma Inline (Get_Kind);
@@ -556,6 +589,11 @@ package PSL.Nodes is
    --  Field: Field2 (uc)
    function Get_HDL_Index (N : Node) return Int32;
    procedure Set_HDL_Index (N : Node; Idx : Int32);
+
+   --  Link the the hash-able node.
+   --  Field: Field5
+   function Get_HDL_Hash (N : Node) return Node;
+   procedure Set_HDL_Hash (N : Node; H : Node);
 
    --  Field: State1 (pos)
    function Get_Presence (N : Node) return PSL_Presence_Kind;

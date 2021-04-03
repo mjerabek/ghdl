@@ -1,20 +1,18 @@
 --  Well known name table entries.
 --  Copyright (C) 2002, 2003, 2004, 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with Name_Table;
 with Ada.Exceptions;
 
@@ -153,22 +151,34 @@ package body Std_Names is
 
       Def ("protected", Name_Protected);
 
-      Def ("context", Name_Context);
-      Def ("parameter", Name_Parameter);
+      Def ("assume",             Name_Assume);
+      Def ("context",            Name_Context);
+      Def ("cover",              Name_Cover);
+      Def ("default",            Name_Default);
+      Def ("force",              Name_Force);
+      Def ("parameter",          Name_Parameter);
+      Def ("property",           Name_Property);
+      Def ("release",            Name_Release);
+      Def ("restrict",           Name_Restrict);
+      Def ("restrict_guarantee", Name_Restrict_Guarantee);
+      Def ("sequence",           Name_Sequence);
+      Def ("vmode",              Name_Vmode);
+      Def ("vprop",              Name_Vprop);
+      Def ("vunit",              Name_Vunit);
 
-      Def ("across", Name_Across);
-      Def ("break", Name_Break);
-      Def ("limit", Name_Limit);
-      Def ("nature", Name_Nature);
-      Def ("noise", Name_Noise);
+      Def ("across",     Name_Across);
+      Def ("break",      Name_Break);
+      Def ("limit",      Name_Limit);
+      Def ("nature",     Name_Nature);
+      Def ("noise",      Name_Noise);
       Def ("procedural", Name_Procedural);
-      Def ("quantity", Name_Quantity);
-      Def ("reference", Name_Reference);
-      Def ("spectrum", Name_Spectrum);
-      Def ("subnature", Name_Subnature);
-      Def ("terminal", Name_Terminal);
-      Def ("through", Name_Through);
-      Def ("tolerance", Name_Tolerance);
+      Def ("quantity",   Name_Quantity);
+      Def ("reference",  Name_Reference);
+      Def ("spectrum",   Name_Spectrum);
+      Def ("subnature",  Name_Subnature);
+      Def ("terminal",   Name_Terminal);
+      Def ("through",    Name_Through);
+      Def ("tolerance",  Name_Tolerance);
 
       --  Verilog keywords
       Def ("always",       Name_Always);
@@ -180,7 +190,6 @@ package body Std_Names is
       Def ("casez",        Name_Casez);
       Def ("cmos",         Name_Cmos);
       Def ("deassign",     Name_Deassign);
-      Def ("default",      Name_Default);
       Def ("defparam",     Name_Defparam);
       Def ("disable",      Name_Disable);
       Def ("edge",         Name_Edge);
@@ -191,7 +200,6 @@ package body Std_Names is
       Def ("endspecify",   Name_Endspecify);
       Def ("endtable",     Name_Endtable);
       Def ("endtask",      Name_Endtask);
-      Def ("force",        Name_Force);
       Def ("forever",      Name_Forever);
       Def ("fork",         Name_Fork);
       Def ("highz0",       Name_Highz0);
@@ -217,7 +225,6 @@ package body Std_Names is
       Def ("pulldown",     Name_Pulldown);
       Def ("pullup",       Name_Pullup);
       Def ("realtime",     Name_Realtime);
-      Def ("release",      Name_Release);
       Def ("reg",          Name_Reg);
       Def ("repeat",       Name_Repeat);
       Def ("rcmos",        Name_Rcmos);
@@ -324,7 +331,6 @@ package body Std_Names is
       Def ("join_none",           Name_Join_None);
       Def ("local",               Name_Local);
       Def ("program",             Name_Program);
-      Def ("property",            Name_Property);
       Def ("rand",                Name_Rand);
       Def ("randc",               Name_Randc);
       Def ("ref",                 Name_Ref);
@@ -339,7 +345,6 @@ package body Std_Names is
       Def ("wait_order",          Name_Wait_Order);
 
       --  SystemVerilog 3.1a
-      Def ("assume",              Name_Assume);
       Def ("covergroup",          Name_Covergroup);
       Def ("coverpoint",          Name_Coverpoint);
       Def ("endgroup",            Name_Endgroup);
@@ -353,6 +358,12 @@ package body Std_Names is
       Def ("randsequence",        Name_Randsequence);
       Def ("tagged",              Name_Tagged);
       Def ("wildcard",            Name_Wildcard);
+
+      --  SystemVerilog 2009
+      Def ("implies",             Name_Implies);
+      Def ("s_until",             Name_S_Until);
+      Def ("s_until_with",        Name_S_Until_With);
+      Def ("until_with",          Name_Until_With);
 
       -- Create operators.
       Def ("=",  Name_Op_Equality);
@@ -417,9 +428,9 @@ package body Std_Names is
       Def ("dot",           Name_Dot);
       Def ("integ",         Name_Integ);
       Def ("above",         Name_Above);
-      Def ("zoh",           Name_ZOH);
-      Def ("ltf",           Name_LTF);
-      Def ("ztf",           Name_ZTF);
+      Def ("zoh",           Name_Zoh);
+      Def ("ltf",           Name_Ltf);
+      Def ("ztf",           Name_Ztf);
       Def ("ramp",          Name_Ramp);
       Def ("slew",          Name_Slew);
 
@@ -451,6 +462,7 @@ package body Std_Names is
       Def ("sec",                 Name_Sec);
       Def ("min",                 Name_Min);
       Def ("hr",                  Name_Hr);
+      Def ("max",                 Name_Max);
       Def ("delay_length",        Name_Delay_Length);
       Def ("now",                 Name_Now);
       Def ("natural",             Name_Natural);
@@ -594,26 +606,85 @@ package body Std_Names is
       Def ("item",                  Name_Item);
       Def ("__FILE__",              Name_Uu_File_Uu);
       Def ("__LINE__",              Name_Uu_Line_Uu);
+      Def ("label_applies_to",      Name_Label_Applies_To);
+      Def ("return_port_name",      Name_Return_Port_Name);
+      Def ("map_to_operator",       Name_Map_To_Operator);
+      Def ("type_function",         Name_Type_Function);
+      Def ("built_in",              Name_Built_In);
+      Def ("none",                  Name_None);
 
-      Def ("ieee",               Name_Ieee);
-      Def ("std_logic_1164",     Name_Std_Logic_1164);
+      Def ("ieee",                  Name_Ieee);
+      Def ("std_logic_1164",        Name_Std_Logic_1164);
+      Def ("vital_timing",          Name_VITAL_Timing);
+      Def ("numeric_std",           Name_Numeric_Std);
+      Def ("numeric_bit",           Name_Numeric_Bit);
+      Def ("numeric_std_unsigned",  Name_Numeric_Std_Unsigned);
+      Def ("std_logic_arith",       Name_Std_Logic_Arith);
+      Def ("std_logic_signed",      Name_Std_Logic_Signed);
+      Def ("std_logic_unsigned",    Name_Std_Logic_Unsigned);
+      Def ("std_logic_textio",      Name_Std_Logic_Textio);
+      Def ("std_logic_misc",        Name_Std_Logic_Misc);
+      Def ("math_real",             Name_Math_Real);
+
       Def ("std_ulogic",         Name_Std_Ulogic);
       Def ("std_ulogic_vector",  Name_Std_Ulogic_Vector);
       Def ("std_logic",          Name_Std_Logic);
       Def ("std_logic_vector",   Name_Std_Logic_Vector);
       Def ("rising_edge",        Name_Rising_Edge);
       Def ("falling_edge",       Name_Falling_Edge);
-      Def ("vital_timing",       Name_VITAL_Timing);
       Def ("vital_level0",       Name_VITAL_Level0);
       Def ("vital_level1",       Name_VITAL_Level1);
-      Def ("numeric_std",        Name_Numeric_Std);
-      Def ("numeric_bit",        Name_Numeric_Bit);
       Def ("unresolved_unsigned", Name_Unresolved_Unsigned);
       Def ("unresolved_signed",  Name_Unresolved_Signed);
-      Def ("std_logic_arith",    Name_Std_Logic_Arith);
-      Def ("std_logic_signed",   Name_Std_Logic_Signed);
-      Def ("std_logic_textio",   Name_Std_Logic_Textio);
-      Def ("std_logic_unsigned", Name_Std_Logic_Unsigned);
+      Def ("to_integer",         Name_To_Integer);
+      Def ("to_unsigned",        Name_To_Unsigned);
+      Def ("to_signed",          Name_To_Signed);
+      Def ("resize",             Name_Resize);
+      Def ("std_match",          Name_Std_Match);
+      Def ("shift_left",         Name_Shift_Left);
+      Def ("shift_right",        Name_Shift_Right);
+      Def ("rotate_left",        Name_Rotate_Left);
+      Def ("rotate_right",       Name_Rotate_Right);
+      Def ("to_bit",             Name_To_Bit);
+      Def ("to_bitvector",       Name_To_Bitvector);
+      Def ("to_stdulogic",       Name_To_Stdulogic);
+      Def ("to_stdlogicvector",  Name_To_Stdlogicvector);
+      Def ("to_stdulogicvector", Name_To_Stdulogicvector);
+      Def ("is_x",               Name_Is_X);
+      Def ("to_01",              Name_To_01);
+      Def ("to_x01",             Name_To_X01);
+      Def ("to_x01z",            Name_To_X01Z);
+      Def ("to_ux01",            Name_To_UX01);
+      Def ("conv_signed",        Name_Conv_Signed);
+      Def ("conv_unsigned",      Name_Conv_Unsigned);
+      Def ("conv_integer",       Name_Conv_Integer);
+      Def ("conv_std_logic_vector", Name_Conv_Std_Logic_Vector);
+      Def ("and_reduce",         Name_And_Reduce);
+      Def ("nand_reduce",        Name_Nand_Reduce);
+      Def ("or_reduce",          Name_Or_Reduce);
+      Def ("nor_reduce",         Name_Nor_Reduce);
+      Def ("xor_reduce",         Name_Xor_Reduce);
+      Def ("xnor_reduce",        Name_Xnor_Reduce);
+      Def ("ceil",               Name_Ceil);
+      Def ("floor",              Name_Floor);
+      Def ("round",              Name_Round);
+      Def ("log2",               Name_Log2);
+      Def ("sin",                Name_Sin);
+      Def ("cos",                Name_Cos);
+      Def ("arctan",             Name_Arctan);
+      Def ("shl",                Name_Shl);
+      Def ("shr",                Name_Shr);
+      Def ("ext",                Name_Ext);
+      Def ("sxt",                Name_Sxt);
+      Def ("find_leftmost",      Name_Find_Leftmost);
+      Def ("find_rightmost",     Name_Find_Rightmost);
+
+      Def ("allconst",           Name_Allconst);
+      Def ("allseq",             Name_Allseq);
+      Def ("anyconst",           Name_Anyconst);
+      Def ("anyseq",             Name_Anyseq);
+      Def ("gclk",               Name_Gclk);
+      Def ("loc",                Name_Loc);
 
       --  Verilog directives
       Def ("define",          Name_Define);
@@ -629,9 +700,13 @@ package body Std_Names is
       Def ("key_block",       Name_Key_Block);
       Def ("data_block",      Name_Data_Block);
       Def ("line",            Name_Line);
+      Def ("celldefine",      Name_Celldefine);
+      Def ("endcelldefine",   Name_Endcelldefine);
+      Def ("default_nettype", Name_Default_Nettype);
+      Def ("resetall",        Name_Resetall);
 
       --  Verilog system tasks
-      Def ("$bits",           Name_D_Bits);
+      Def ("bits",            Name_Bits);
       Def ("$root",           Name_D_Root);
       Def ("$unit",           Name_D_Unit);
 
@@ -656,6 +731,14 @@ package body Std_Names is
       Def ("find_last",        Name_Find_Last);
       Def ("find_last_index",  Name_Find_Last_Index);
       Def ("num",              Name_Num);
+      Def ("randomize",        Name_Randomize);
+      Def ("pre_randomize",    Name_Pre_Randomize);
+      Def ("post_randomize",   Name_Post_Randomize);
+      Def ("srandom",          Name_Srandom);
+      Def ("get_randstate",    Name_Get_Randstate);
+      Def ("set_randstate",    Name_Set_Randstate);
+      Def ("seed",             Name_Seed);
+      Def ("state",            Name_State);
 
       --  BSV keywords
       Def ("Action",         Name_uAction);
@@ -710,8 +793,16 @@ package body Std_Names is
       Def ("valueOf",        Name_uValueof);
 
       --  VHDL special comments
-      Def ("psl",    Name_Psl);
-      Def ("pragma", Name_Pragma);
+      Def ("psl",                   Name_Psl);
+      Def ("pragma",                Name_Pragma);
+      Def ("synthesis",             Name_Synthesis);
+      Def ("synopsys",              Name_Synopsys);
+      Def ("translate_off",         Name_Translate_Off);
+      Def ("translate_on",          Name_Translate_On);
+      Def ("translate",             Name_Translate);
+      Def ("synthesis_off",         Name_Synthesis_Off);
+      Def ("synthesis_on",          Name_Synthesis_On);
+      Def ("off",                   Name_Off);
 
       --  PSL keywords
       Def ("a",                  Name_A);
@@ -719,12 +810,11 @@ package body Std_Names is
       Def ("ag",                 Name_Ag);
       Def ("ax",                 Name_Ax);
       Def ("abort",              Name_Abort);
-      Def ("assume",             Name_Assume);
       Def ("assume_guarantee",   Name_Assume_Guarantee);
+      Def ("async_abort",        Name_Async_Abort);
       Def ("before",             Name_Before);
       Def ("clock",              Name_Clock);
       Def ("const",              Name_Const);
-      Def ("cover",              Name_Cover);
       Def ("e",                  Name_E);
       Def ("ef",                 Name_Ef);
       Def ("eg",                 Name_Eg);
@@ -732,7 +822,7 @@ package body Std_Names is
       Def ("endpoint",           Name_Endpoint);
       Def ("eventually",         Name_Eventually);
       Def ("fairness",           Name_Fairness);
-      Def ("fell ",              Name_Fell);
+      Def ("fell",               Name_Fell);
       Def ("forall",             Name_Forall);
       Def ("g",                  Name_G);
       Def ("inf",                Name_Inf);
@@ -743,17 +833,14 @@ package body Std_Names is
       Def ("next_event",         Name_Next_Event);
       Def ("next_event_a",       Name_Next_Event_A);
       Def ("next_event_e",       Name_Next_Event_E);
+      Def ("onehot",             Name_Onehot);
+      Def ("onehot0",            Name_Onehot0);
       Def ("property",           Name_Property);
       Def ("prev",               Name_Prev);
-      Def ("restrict",           Name_Restrict);
-      Def ("restrict_guarantee", Name_Restrict_Guarantee);
       Def ("rose",               Name_Rose);
-      Def ("sequence",           Name_Sequence);
       Def ("strong",             Name_Strong);
+      Def ("sync_abort",         Name_Sync_Abort);
       Def ("union",              Name_Union);
-      Def ("vmode",              Name_Vmode);
-      Def ("vprop",              Name_Vprop);
-      Def ("vunit",              Name_Vunit);
       Def ("w",                  Name_W);
       Def ("whilenot",           Name_Whilenot);
       Def ("within",             Name_Within);

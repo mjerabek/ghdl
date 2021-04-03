@@ -1,23 +1,21 @@
 --  Iir to ortho translator.
 --  Copyright (C) 2002-2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Name_Table; -- use Name_Table;
-with Nodes;
+with Vhdl.Nodes_Priv;
 with Tables;
 with Trans_Decls; use Trans_Decls;
 
@@ -1224,20 +1222,21 @@ package body Trans is
       D : O_Dnode;
    begin
       case M.M1.State is
-         when Mstate_E =>
-            if Is_Composite (M.M1.T) then
-               --  Create a pointer variable.
-               D := Create_Temp_Init (M.M1.Ptype, M.M1.E);
-               return Mnode'(M1 => (State => Mstate_Dp,
-                                    K => K, T => M.M1.T, Dp => D,
-                                    Vtype => M.M1.Vtype, Ptype => M.M1.Ptype));
-            else
-               --  Create a scalar variable.
-               D := Create_Temp_Init (M.M1.Vtype, M.M1.E);
-               return Mnode'(M1 => (State => Mstate_Dv,
-                                    K => K, T => M.M1.T, Dv => D,
-                                    Vtype => M.M1.Vtype, Ptype => M.M1.Ptype));
+         when Mstate_Ep =>
+            --  Create a pointer variable.
+            D := Create_Temp_Init (M.M1.Ptype, M.M1.Ep);
+            return Mnode'(M1 => (State => Mstate_Dp,
+                                 K => K, T => M.M1.T, Dp => D,
+                                 Vtype => M.M1.Vtype, Ptype => M.M1.Ptype));
+         when Mstate_Ev =>
+            if not Can_Copy then
+               raise Internal_Error;
             end if;
+            --  Create a scalar variable.
+            D := Create_Temp_Init (M.M1.Vtype, M.M1.Ev);
+            return Mnode'(M1 => (State => Mstate_Dv,
+                                 K => K, T => M.M1.T, Dv => D,
+                                 Vtype => M.M1.Vtype, Ptype => M.M1.Ptype));
          when Mstate_Lp =>
             D := Create_Temp_Init (M.M1.Ptype, New_Value (M.M1.Lp));
             return Mnode'(M1 => (State => Mstate_Dp,
@@ -1281,8 +1280,10 @@ package body Trans is
       --  M must be scalar or access.
       pragma Assert (not Is_Composite (M.M1.T));
       case M.M1.State is
-         when Mstate_E =>
-            E := M.M1.E;
+         when Mstate_Ev =>
+            E := M.M1.Ev;
+         when Mstate_Ep =>
+            raise Internal_Error;
          when Mstate_Lp =>
             E := New_Value (New_Acc_Value (M.M1.Lp));
          when Mstate_Lv =>
@@ -1368,11 +1369,11 @@ package body Trans is
 
    procedure Update_Node_Infos
    is
-      use Nodes;
+      use Vhdl.Nodes_Priv;
       F, L : Iir;
    begin
       F := Node_Infos.Last;
-      L := Nodes.Get_Last_Node;
+      L := Get_Last_Node;
       Node_Infos.Set_Last (L);
       Node_Infos.Table (F + 1 .. L) := (others => null);
    end Update_Node_Infos;
@@ -1533,10 +1534,17 @@ package body Trans is
    function E2M (E : O_Enode; T : Type_Info_Acc; Kind : Object_Kind_Type)
                  return Mnode is
    begin
-      return Mnode'(M1 => (State => Mstate_E,
-                           K => Kind, T => T, E => E,
-                           Vtype => T.Ortho_Type (Kind),
-                           Ptype => T.Ortho_Ptr_Type (Kind)));
+      if Is_Composite (T) then
+         return Mnode'(M1 => (State => Mstate_Ep,
+                              K => Kind, T => T, Ep => E,
+                              Vtype => T.Ortho_Type (Kind),
+                              Ptype => T.Ortho_Ptr_Type (Kind)));
+      else
+         return Mnode'(M1 => (State => Mstate_Ev,
+                              K => Kind, T => T, Ev => E,
+                              Vtype => T.Ortho_Type (Kind),
+                              Ptype => T.Ortho_Ptr_Type (Kind)));
+      end if;
    end E2M;
 
    function E2M (E : O_Enode;
@@ -1546,8 +1554,9 @@ package body Trans is
                  Ptype : O_Tnode)
                 return Mnode is
    begin
-      return Mnode'(M1 => (State => Mstate_E,
-                           K => Kind, T => T, E => E,
+      pragma Assert (Is_Composite (T));
+      return Mnode'(M1 => (State => Mstate_Ep,
+                           K => Kind, T => T, Ep => E,
                            Vtype => Vtype, Ptype => Ptype));
    end E2M;
 
@@ -1643,18 +1652,13 @@ package body Trans is
    function M2Lv (M : Mnode) return O_Lnode is
    begin
       case M.M1.State is
-         when Mstate_E =>
-            case Get_Type_Info (M).Type_Mode is
-               when Type_Mode_Thin =>
-                  --  Scalar to var is not possible.
-                  --  FIXME: This is not coherent with the fact that this
-                  --  conversion is possible when M is stabilized.
-                  raise Internal_Error;
-               when Type_Mode_Fat =>
-                  return New_Access_Element (M.M1.E);
-               when Type_Mode_Unknown =>
-                  raise Internal_Error;
-            end case;
+         when Mstate_Ev =>
+            --  Scalar to var is not possible.
+            --  FIXME: This is not coherent with the fact that this
+            --  conversion is possible when M is stabilized.
+            raise Internal_Error;
+         when Mstate_Ep =>
+            return New_Access_Element (M.M1.Ep);
          when Mstate_Lp =>
             return New_Acc_Value (M.M1.Lp);
          when Mstate_Lv =>
@@ -1672,7 +1676,8 @@ package body Trans is
    function M2Lp (M : Mnode) return O_Lnode is
    begin
       case M.M1.State is
-         when Mstate_E =>
+         when Mstate_Ev
+            | Mstate_Ep =>
             raise Internal_Error;
          when Mstate_Lp =>
             return M.M1.Lp;
@@ -1731,8 +1736,10 @@ package body Trans is
    function M2E (M : Mnode) return O_Enode is
    begin
       case M.M1.State is
-         when Mstate_E =>
-            return M.M1.E;
+         when Mstate_Ev =>
+            return M.M1.Ev;
+         when Mstate_Ep =>
+            return M.M1.Ep;
          when Mstate_Lp =>
             case M.M1.T.Type_Mode is
                when Type_Mode_Unknown =>
@@ -1786,11 +1793,12 @@ package body Trans is
             return New_Address (M.M1.Lv, M.M1.Ptype);
          when Mstate_Dv =>
             return New_Address (New_Obj (M.M1.Dv), M.M1.Ptype);
-         when Mstate_E =>
+         when Mstate_Ep =>
+            return M.M1.Ep;
+         when Mstate_Ev =>
             --  For scalar, M contains the value so there is no lvalue from
             --  which the address can be taken.
-            pragma Assert (Is_Composite (M.M1.T));
-            return M.M1.E;
+            raise Internal_Error;
          when Mstate_Bad
             | Mstate_Null =>
             raise Internal_Error;

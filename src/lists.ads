@@ -1,23 +1,22 @@
 --  Lists data type.
 --  Copyright (C) 2002, 2003, 2004, 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with Types; use Types;
-with Nodes; use Nodes;
 
+generic
+   type El_Type is range <>;
 package Lists is
    type List_Type is new Nat32;
    for List_Type'Size use 32;
@@ -68,18 +67,20 @@ package Lists is
    --  Destroy a list.
    procedure Destroy_List (List : in out List_Type);
 
-   --  Free all the lists and reset to initial state.
-   --  Must be used to free the memory used by the lists.
+   --  Free all the lists.
+   procedure Finalize;
+
+   --  Reset to initial state.
    procedure Initialize;
 
    --  Append ELEMENT to the list.  It's an O(1) operation.
-   procedure Append_Element (List : List_Type; Element : Node_Type);
+   procedure Append_Element (List : List_Type; Element : El_Type);
 
    --  Return the first element of the list.
-   function Get_First_Element (List : List_Type) return Node_Type;
+   function Get_First_Element (List : List_Type) return El_Type;
 
    --  Append EL if not already in LIST.  It's an O(n) operation.
-   procedure Add_Element (List : List_Type; El : Node_Type);
+   procedure Add_Element (List : List_Type; El : El_Type);
 
    -- Return the number of elements in the list.
    -- This is also 1 + the position of the last element.
@@ -101,8 +102,8 @@ package Lists is
    function Iterate (List : List_Type) return Iterator;
    function Is_Valid (It : Iterator) return Boolean;
    procedure Next (It : in out Iterator);
-   function Get_Element (It : Iterator) return Node_Type;
-   procedure Set_Element (It : Iterator; El : Node_Type);
+   function Get_Element (It : Iterator) return El_Type;
+   procedure Set_Element (It : Iterator; El : El_Type);
 
    --  Use the C convention for all these subprograms, so that the Iterator is
    --  always passed by reference.
@@ -123,7 +124,7 @@ private
    Chunk_Len : constant := 7;
 
    type Node_Type_Array is
-     array (Nat32 range 0 .. Chunk_Len - 1) of Node_Type;
+     array (Nat32 range 0 .. Chunk_Len - 1) of El_Type;
 
    type Chunk_Type is record
       Next : Chunk_Index_Type;

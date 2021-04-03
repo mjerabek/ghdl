@@ -1,32 +1,28 @@
 --  Back-end for translation.
 --  Copyright (C) 2002, 2003, 2004, 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
-with Iirs; use Iirs;
-with Translation;
-with Errorout; use Errorout;
-with Ada.Text_IO;
-with Back_End;
+--  along with this program.  If not, see <gnu.org/licenses>.
+
+with Simple_IO;
+with Vhdl.Errors; use Vhdl.Errors;
+with Vhdl.Back_End;
 
 package body Trans_Be is
    procedure Sem_Foreign (Decl : Iir)
    is
       use Translation;
       Fi : Foreign_Info_Type;
-      pragma Unreferenced (Fi);
    begin
       case Get_Kind (Decl) is
          when Iir_Kind_Architecture_Body =>
@@ -37,8 +33,12 @@ package body Trans_Be is
          when others =>
             Error_Kind ("sem_foreign", Decl);
       end case;
-      --  Let is generate error messages.
+      --  Let it generate error messages.
       Fi := Translate_Foreign_Id (Decl);
+
+      if Sem_Foreign_Hook /= null then
+         Sem_Foreign_Hook.all (Decl, Fi);
+      end if;
    end Sem_Foreign;
 
    function Parse_Option (Opt : String) return Boolean is
@@ -61,15 +61,15 @@ package body Trans_Be is
 
    procedure Disp_Option
    is
-      procedure P (Str : String) renames Ada.Text_IO.Put_Line;
+      procedure P (Str : String) renames Simple_IO.Put_Line;
    begin
       P ("  --dump-drivers     dump processes drivers");
    end Disp_Option;
 
    procedure Register_Translation_Back_End is
    begin
-      Back_End.Sem_Foreign := Sem_Foreign'Access;
-      Back_End.Parse_Option := Parse_Option'Access;
-      Back_End.Disp_Option := Disp_Option'Access;
+      Vhdl.Back_End.Sem_Foreign := Sem_Foreign'Access;
+      Vhdl.Back_End.Parse_Option := Parse_Option'Access;
+      Vhdl.Back_End.Disp_Option := Disp_Option'Access;
    end Register_Translation_Back_End;
 end Trans_Be;

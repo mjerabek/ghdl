@@ -1,20 +1,18 @@
 --  LLVM back-end for ortho.
 --  Copyright (C) 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Ada.Unchecked_Conversion;
 with Ada.Unchecked_Deallocation;
@@ -630,13 +628,12 @@ package body Ortho_LLVM is
    ----------------------
 
    procedure Start_Array_Aggr
-     (List : out O_Array_Aggr_List;
-      Atype : O_Tnode)
+     (List : out O_Array_Aggr_List; Atype : O_Tnode; Len : Unsigned_32)
    is
       Llvm : constant TypeRef := Get_LLVM_Type (Atype);
    begin
       List := (Len => 0,
-               Vals => new ValueRefArray (1 .. GetArrayLength (Llvm)),
+               Vals => new ValueRefArray (1 .. unsigned (Len)),
                El_Type => GetElementType (Llvm),
                Atype => Atype);
    end Start_Array_Aggr;
@@ -956,7 +953,7 @@ package body Ortho_LLVM is
                   end case;
 
                when ON_Mod_Ov
-                 | ON_Rem_Ov => -- FIXME...
+                 | ON_Rem_Ov =>
                   case Left.Etype.Kind is
                      when ON_Unsigned_Type =>
                         Build := BuildURem'Access;
@@ -1247,7 +1244,7 @@ package body Ortho_LLVM is
    -- New_Convert_Ov --
    --------------------
 
-   function New_Convert_Ov (Val : O_Enode; Rtype : O_Tnode) return O_Enode
+   function New_Convert (Val : O_Enode; Rtype : O_Tnode) return O_Enode
    is
       Res : ValueRef := Null_ValueRef;
    begin
@@ -1338,11 +1335,16 @@ package body Ortho_LLVM is
          --  Set_Insn_Dbg (Res);
          return O_Enode'(LLVM => Res, Etype => Rtype);
       else
-         raise Program_Error with "New_Convert_Ov: not implemented for "
+         raise Program_Error with "New_Convert: not implemented for "
            & ON_Type_Kind'Image (Val.Etype.Kind)
            & " -> "
            & ON_Type_Kind'Image (Rtype.Kind);
       end if;
+   end New_Convert;
+
+   function New_Convert_Ov (Val : O_Enode; Rtype : O_Tnode) return O_Enode is
+   begin
+      return New_Convert (Val, Rtype);
    end New_Convert_Ov;
 
    -----------------

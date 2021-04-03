@@ -1,22 +1,21 @@
 --  PSL - Pretty print
 --  Copyright (C) 2002-2016 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Types; use Types;
+with PSL.Types; use PSL.Types;
 with PSL.Errors; use PSL.Errors;
 with Name_Table; use Name_Table;
 with Ada.Text_IO; use Ada.Text_IO;
@@ -57,6 +56,8 @@ package body PSL.Prints is
             return Prio_Seq_Or;
          when N_And_Prop =>
             return Prio_Seq_And;
+         when N_Paren_Prop =>
+            return Prio_FL_Paren;
          when N_Imp_Seq
            | N_Overlap_Imp_Seq
            | N_Log_Imp_Prop
@@ -68,6 +69,7 @@ package body PSL.Prints is
            | N_False
            | N_EOS
            | N_HDL_Expr
+           | N_HDL_Bool
            | N_Property_Instance
            | N_Sequence_Instance =>
             return Prio_HDL;
@@ -149,7 +151,8 @@ package body PSL.Prints is
             end;
          when N_Name_Decl =>
             Put (Image (Get_Identifier (N)));
-         when N_HDL_Expr =>
+         when N_HDL_Expr
+           | N_HDL_Bool =>
             if HDL_Expr_Printer = null then
                Put ("HDL_Expr");
             else
@@ -371,9 +374,21 @@ package body PSL.Prints is
          when N_Before =>
             Print_Binary_Property_SI (" before", Prop, Prio);
          when N_Or_Prop =>
-            Print_Binary_Property (" || ", Prop, Prio);
+            if True then
+               Print_Binary_Property (" or ", Prop, Prio);
+            else
+               Print_Binary_Property (" || ", Prop, Prio);
+            end if;
          when N_And_Prop =>
-            Print_Binary_Property (" && ", Prop, Prio);
+            if True then
+               Print_Binary_Property (" and ", Prop, Prio);
+            else
+               Print_Binary_Property (" && ", Prop, Prio);
+            end if;
+         when N_Paren_Prop =>
+            Put ("(");
+            Print_Property (Get_Property (Prop), Prio);
+            Put (")");
          when N_Imp_Seq =>
             Print_Property (Get_Sequence (Prop), Prio);
             Put (" |=> ");

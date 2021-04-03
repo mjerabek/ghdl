@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) -  entry point.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -23,14 +21,24 @@
 --  however invalidate any other reasons why the executable file might be
 --  covered by the GNU Public License.
 
+with Grt.Types; use Grt.Types;
+with Grt.Options;
+
 package Grt.Main is
-   --  Elaborate and simulate the design.
+   --  Set options.
+   procedure Run_Options (Progname : Ghdl_C_String;
+                          Argc : Integer;
+                          Argv : Grt.Options.Argv_Type);
+   pragma Export (C, Run_Options, "grt_main_options");
+
+   --  Do everything: initialize, elaborate and simulate the design.
    procedure Run;
 
    --  What Run does.
 
-   --  Elaborate the design.
-   procedure Run_Elab (Stop : out Boolean);
+   --  Initialize and elaborate the design.  Return False in case of error.
+   function Run_Elab return C_Boolean;
+   pragma Export (C, Run_Elab, "grt_main_elab");
 
    --  Do the whole simulation.
    function Run_Simul return Integer;

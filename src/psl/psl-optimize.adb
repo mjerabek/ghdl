@@ -1,22 +1,21 @@
 --  PSL - Optimize NFA
 --  Copyright (C) 2002-2016 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GHDL; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 
 with Types; use Types;
+with PSL.Types; use PSL.Types;
 with PSL.NFAs.Utils; use PSL.NFAs.Utils;
 with PSL.CSE;
 
@@ -35,15 +34,15 @@ package body PSL.Optimize is
 
    procedure Remove_Unreachable_States (N : NFA)
    is
+      Start : constant NFA_State := Get_Start_State (N);
+      Final : constant NFA_State := Get_Final_State (N);
+      Active : constant NFA_State := Get_Active_State (N);
       Head : NFA_State;
-      Start, Final : NFA_State;
       E : NFA_Edge;
       S, N_S : NFA_State;
    begin
       --  Remove unreachable states, ie states that can't be reached from
       --  start state.
-      Start := Get_Start_State (N);
-      Final := Get_Final_State (N);
 
       Head := No_State;
 
@@ -75,6 +74,10 @@ package body PSL.Optimize is
          elsif S = Final then
             --  Do not remove final state!
             --  FIXME: deconnect state?
+            null;
+         elsif S = Active then
+            --  Do not remove the active state, so that user can see that's
+            --  vacuous.
             null;
          else
             Remove_State (N, S);
@@ -113,6 +116,9 @@ package body PSL.Optimize is
          elsif S = Start then
             --  Do not remove start state!
             --  FIXME: deconnect state?
+            null;
+         elsif S = Active then
+            --  The active state is not expected to be reach the final state.
             null;
          else
             Remove_State (N, S);

@@ -1,20 +1,18 @@
 --  Mcode back-end for ortho - Constants handling.
 --  Copyright (C) 2006 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 with Interfaces; use Interfaces;
 
 package Ortho_Code.Consts is
@@ -22,7 +20,7 @@ package Ortho_Code.Consts is
                     OC_Zero,
                     OC_Array, OC_Record, OC_Union,
                     OC_Subprg_Address, OC_Address,
-                    OC_Sizeof, OC_Alignof);
+                    OC_Sizeof, OC_Record_Sizeof, OC_Alignof);
 
    type OG_Kind is (OG_Decl, OG_Record_Ref);
 
@@ -67,6 +65,9 @@ package Ortho_Code.Consts is
 
    --  Get the type from an OC_Alignof node.
    function Get_Alignof_Type (Cst : O_Cnode) return O_Tnode;
+
+   --  Get the size (number of bytes) for CST.
+   function Get_Const_Size (Cst : O_Cnode) return Uns32;
 
    --  Get the value of a named literal.
    --function Get_Const_Literal (Cst : O_Cnode) return Uns32;
@@ -122,7 +123,8 @@ package Ortho_Code.Consts is
    procedure Finish_Record_Aggr (List : in out O_Record_Aggr_List;
                                  Res : out O_Cnode);
 
-   procedure Start_Array_Aggr (List : out O_Array_Aggr_List; Atype : O_Tnode);
+   procedure Start_Array_Aggr
+     (List : out O_Array_Aggr_List; Arr_Type : O_Tnode; Len : Unsigned_32);
    procedure New_Array_Aggr_El (List : in out O_Array_Aggr_List;
                                 Value : O_Cnode);
    procedure Finish_Array_Aggr (List : in out O_Array_Aggr_List;
@@ -136,6 +138,8 @@ package Ortho_Code.Consts is
    --  unsigned type RTYPE
    --  ATYPE cannot be an unconstrained array type.
    function New_Sizeof (Atype : O_Tnode; Rtype : O_Tnode) return O_Cnode;
+   function New_Record_Sizeof
+     (Atype : O_Tnode; Rtype : O_Tnode) return O_Cnode;
 
    --  Returns the alignment in bytes for ATYPE.  The result is a literal of
    --  unsgined type RTYPE.

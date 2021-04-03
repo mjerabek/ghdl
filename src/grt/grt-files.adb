@@ -1,20 +1,18 @@
 --  GHDL Run Time (GRT) -  VHDL files subprograms.
 --  Copyright (C) 2002 - 2014 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
 --
 --  As a special exception, if other files instantiate generics from this
 --  unit, or you link this unit with other files to produce an executable,
@@ -23,6 +21,7 @@
 --  however invalidate any other reasons why the executable file might be
 --  covered by the GNU Public License.
 with Grt.Errors; use Grt.Errors;
+with Grt.Errors_Exec; use Grt.Errors_Exec;
 with Grt.Stdio; use Grt.Stdio;
 with Grt.C; use Grt.C;
 with Grt.Table;
@@ -32,6 +31,10 @@ pragma Elaborate_All (Grt.Table);
 
 package body Grt.Files is
    subtype C_Files is Grt.Stdio.FILEs;
+
+   --  The end of lines
+   C_LF : constant int := 10;   --  \n
+   C_CR : constant int := 13;   --  \r
 
    Auto_Flush : constant Boolean := False;
 
@@ -469,22 +472,37 @@ package body Grt.Files is
    is
       Stream : C_Files;
       Max_Len : int;
+      C : int;
+      L : Ghdl_Index_Type;
    begin
       Stream := Get_File (File);
       Check_Read (File, True);
 
       Max_Len := int (Str.Bounds.Dim_1.Length);
-      if fgets (Str.Base (0)'Address, Max_Len, Stream) = Null_Address then
-         Internal_Error ("ghdl_untruncated_text_read: end of file");
-      end if;
 
-      --  Compute the length.
-      for I in Ghdl_Index_Type loop
-         if Str.Base (I) = NUL then
-            Len.all := Std_Integer (I);
-            exit;
+      --  Read at most LEN characters, stop at EOL.
+      L := 0;
+      for I in 1 .. Max_Len loop
+         C := fgetc (Stream);
+         exit when C < 0;
+         --  Be nice with DOS files: handle CR/CR+LF/LF.
+         --  Note: LF+CR is not handled, so that on unix we don't need
+         --  to read the next line.
+         --  Always return LF as end of line.
+         if C = C_CR then
+            C := fgetc (Stream);
+            if C > 0 and C /= C_LF then
+               C := ungetc (C, Stream);
+               pragma Assert (C >= 0);
+            end if;
+            C := C_LF;
          end if;
+         Str.Base (L) := Character'Val (C);
+         L := L + 1;
+         exit when C = C_LF;
       end loop;
+
+      Len.all := Std_Integer (L);
    end Ghdl_Untruncated_Text_Read;
 
    procedure File_Close (File : Ghdl_File_Index; Is_Text : Boolean)

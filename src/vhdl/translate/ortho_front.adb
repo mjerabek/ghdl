@@ -1,37 +1,41 @@
 --  Ortho entry point for translation.
 --  Copyright (C) 2002, 2003, 2004, 2005 Tristan Gingold
 --
---  GHDL is free software; you can redistribute it and/or modify it under
---  the terms of the GNU General Public License as published by the Free
---  Software Foundation; either version 2, or (at your option) any later
---  version.
+--  This program is free software: you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation, either version 2 of the License, or
+--  (at your option) any later version.
 --
---  GHDL is distributed in the hope that it will be useful, but WITHOUT ANY
---  WARRANTY; without even the implied warranty of MERCHANTABILITY or
---  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
---  for more details.
+--  This program is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
 --
 --  You should have received a copy of the GNU General Public License
---  along with GCC; see the file COPYING.  If not, write to the Free
---  Software Foundation, 59 Temple Place - Suite 330, Boston, MA
---  02111-1307, USA.
+--  along with this program.  If not, see <gnu.org/licenses>.
+with System;
+with Interfaces.C_Streams;
+with GNAT.OS_Lib;
+
 with Types; use Types;
 with Name_Table;
-with Iirs; use Iirs;
-with Libraries;
-with Iirs_Utils; use Iirs_Utils;
-with Std_Package;
+with Hash;
+with Interning;
 with Flags;
-with Configuration;
+with Libraries;
+with Vhdl.Nodes; use Vhdl.Nodes;
+with Vhdl.Utils; use Vhdl.Utils;
+with Vhdl.Std_Package;
+with Vhdl.Configuration;
 with Translation;
-with Sem;
-with Sem_Lib; use Sem_Lib;
+with Vhdl.Sem;
+with Vhdl.Sem_Lib; use Vhdl.Sem_Lib;
 with Errorout; use Errorout;
 with Errorout.Console;
-with GNAT.OS_Lib;
+with Vhdl.Errors; use Vhdl.Errors;
 with Bug;
 with Trans_Be;
-with Options;
+with Options; use Options;
 
 package body Ortho_Front is
    --  The action to be performed by the compiler.
@@ -55,9 +59,9 @@ package body Ortho_Front is
    Action : Action_Type := Action_Compile;
 
    --  Name of the entity to elaborate.
-   Elab_Entity : String_Acc;
+   Elab_Entity : Name_Id;
    --  Name of the architecture to elaborate.
-   Elab_Architecture : String_Acc;
+   Elab_Architecture : Name_Id;
    --  Filename for the list of files to link.
    Elab_Filelist : String_Acc;
 
@@ -66,6 +70,9 @@ package body Ortho_Front is
    type Id_Link;
    type Id_Link_Acc is access Id_Link;
    type Id_Link is record
+      --  If true, ID is the name of a library (for --work=LIB)
+      --  If false, ID is the name of a file.
+      Is_Library : Boolean;
       Id : Name_Id;
       Link : Id_Link_Acc;
    end record;
@@ -83,15 +90,15 @@ package body Ortho_Front is
       Options.Initialize;
 
       Elab_Filelist := null;
-      Elab_Entity := null;
-      Elab_Architecture := null;
+      Elab_Entity := Null_Identifier;
+      Elab_Architecture := Null_Identifier;
       Flag_Expect_Failure := False;
    end Init;
 
    function Decode_Elab_Option (Arg : String_Acc; Cmd : String)
                                return Natural is
    begin
-      Elab_Architecture := null;
+      Elab_Architecture := Null_Identifier;
       --  Entity (+ architecture) to elaborate
       if Arg = null then
          Error_Msg_Option
@@ -140,12 +147,14 @@ package body Ortho_Front is
                   P := P - 1;
                end if;
             end loop;
-            Elab_Architecture := new String'(Arg (P + 1 .. Arg'Last - 1));
-            Elab_Entity := new String'(Arg (Arg'First .. P - 1));
+            Elab_Architecture :=
+              Name_Table.Get_Identifier (Arg (P + 1 .. Arg'Last - 1));
+            Elab_Entity :=
+              Name_Table.Get_Identifier (Arg (Arg'First .. P - 1));
          end;
       else
-         Elab_Entity := new String'(Arg.all);
-         Elab_Architecture := new String'("");
+         Elab_Entity := Name_Table.Get_Identifier (Arg.all);
+         Elab_Architecture := Null_Identifier;
       end if;
       return 2;
    end Decode_Elab_Option;
@@ -187,16 +196,26 @@ package body Ortho_Front is
               ("--ghdl-source option allowed only after --anaelab options");
             return 0;
          end if;
-         if Arg /= null then
-            Error_Msg_Option ("no argument allowed after --ghdl-source");
-            return 0;
-         end if;
          declare
             L : Id_Link_Acc;
          begin
-            L := new Id_Link'(Id => Name_Table.Get_Identifier
-                                (Opt (Opt'First + 14 .. Opt'Last)),
-                              Link => null);
+            if Opt'Length > 15
+              and then Opt (Opt'First + 14 .. Opt'First + 20) = "--work="
+            then
+               L := new Id_Link' (Is_Library => True,
+                                  Id => Libraries.Decode_Work_Option
+                                    (Opt (Opt'First + 14 .. Opt'Last)),
+                                  Link => null);
+               if L.Id = Null_Identifier then
+                  return 0;
+               end if;
+            else
+               L := new Id_Link'(Is_Library => False,
+                                 Id => Name_Table.Get_Identifier
+                                   (Opt (Opt'First + 14 .. Opt'Last)),
+                                 Link => null);
+            end if;
+
             if Anaelab_Files = null then
                Anaelab_Files := L;
             else
@@ -226,13 +245,13 @@ package body Ortho_Front is
             subtype Str_Type is String (1 .. Opt'Last - 6);
          begin
             --  The option parameter must be normalized (starts at index 1).
-            if Options.Parse_Option (Str_Type (Opt (7 .. Opt'Last))) then
+            if Parse_Option (Str_Type (Opt (7 .. Opt'Last))) = Option_Ok then
                return 1;
             else
                return 0;
             end if;
          end;
-      elsif Options.Parse_Option (Opt.all) then
+      elsif Options.Parse_Option (Opt.all) = Option_Ok then
          return 1;
       else
          return 0;
@@ -312,18 +331,18 @@ package body Ortho_Front is
       --  Do late analysis checks.
       Design := Get_First_Design_Unit (New_Design_File);
       while Is_Valid (Design) loop
-         Sem.Sem_Analysis_Checks_List
+         Vhdl.Sem.Sem_Analysis_Checks_List
            (Design, Is_Warning_Enabled (Warnid_Delayed_Checks));
          Design := Get_Chain (Design);
       end loop;
 
       --  Gather dependencies
       pragma Assert (Flags.Flag_Elaborate = False);
-      Configuration.Flag_Load_All_Design_Units := False;
+      Vhdl.Configuration.Flag_Load_All_Design_Units := False;
 
       --  Exclude std.standard
-      Set_Configuration_Mark_Flag (Std_Package.Std_Standard_Unit, True);
-      Set_Configuration_Done_Flag (Std_Package.Std_Standard_Unit, True);
+      Set_Configuration_Mark_Flag (Vhdl.Std_Package.Std_Standard_Unit, True);
+      Set_Configuration_Done_Flag (Vhdl.Std_Package.Std_Standard_Unit, True);
 
       Dep_List := Create_Iir_List;
 
@@ -397,6 +416,117 @@ package body Ortho_Front is
       Libraries.Save_Work_Library;
    end Do_Compile;
 
+   --  Table of libraries gathered from vhpidirect.
+   function Shlib_Build (Name : String) return String_Acc is
+   begin
+      return new String'(Name);
+   end Shlib_Build;
+
+   function Shlib_Equal (Obj : String_Acc; Param : String) return Boolean is
+   begin
+      return Obj.all = Param;
+   end Shlib_Equal;
+
+   package Shlib_Interning is new Interning
+     (Params_Type => String,
+      Object_Type => String_Acc,
+      Hash => Hash.String_Hash,
+      Build => Shlib_Build,
+      Equal => Shlib_Equal);
+
+   procedure Sem_Foreign_Hook
+     (Decl : Iir; Info : Translation.Foreign_Info_Type)
+   is
+      pragma Unreferenced (Decl);
+      use Translation;
+   begin
+      case Info.Kind is
+         when Foreign_Vhpidirect =>
+            declare
+               Lib : constant String :=
+                 Info.Lib_Name (1 .. Info.Lib_Len);
+               Shlib : String_Acc;
+               pragma Unreferenced (Shlib);
+            begin
+               if Info.Lib_Len /= 0 and then Lib /= "null" then
+                  Shlib := Shlib_Interning.Get (Lib);
+               end if;
+            end;
+         when Foreign_Intrinsic =>
+            null;
+         when Foreign_Unknown =>
+            null;
+      end case;
+   end Sem_Foreign_Hook;
+
+   --  Write to file FILELIST all the files that are needed to link the design.
+   procedure Write_File_List (Filelist : String)
+   is
+      use Interfaces.C_Streams;
+      use System;
+      use Vhdl.Configuration;
+      use Name_Table;
+
+      Nul : constant Character := Character'Val (0);
+      Fname : String := Filelist & Nul;
+      Mode : constant String := "wt" & Nul;
+      F : FILEs;
+      R : int;
+      S : size_t;
+      pragma Unreferenced (R, S); -- FIXME
+      Id : Name_Id;
+      Lib : Iir_Library_Declaration;
+      File : Iir_Design_File;
+      Unit : Iir_Design_Unit;
+   begin
+      F := fopen (Fname'Address, Mode'Address);
+      if F = NULL_Stream then
+         Error_Msg_Elab ("cannot open " & Filelist);
+         return;
+      end if;
+
+      --  Clear elab flags on design files.
+      for I in Design_Units.First .. Design_Units.Last loop
+         Unit := Design_Units.Table (I);
+         File := Get_Design_File (Unit);
+         Set_Elab_Flag (File, False);
+      end loop;
+
+      for J in Design_Units.First .. Design_Units.Last loop
+         Unit := Design_Units.Table (J);
+         File := Get_Design_File (Unit);
+         if not Get_Elab_Flag (File) then
+            Set_Elab_Flag (File, True);
+
+            --  Write '>LIBRARY_DIRECTORY'.
+            Lib := Get_Library (File);
+            R := fputc (Character'Pos ('>'), F);
+            Id := Get_Library_Directory (Lib);
+            S := fwrite (Get_Address (Id),
+                         size_t (Get_Name_Length (Id)), 1, F);
+            R := fputc (10, F);
+
+            --  Write 'FILENAME'.
+            Id := Get_Design_File_Filename (File);
+            S := fwrite (Get_Address (Id),
+                         size_t (Get_Name_Length (Id)), 1, F);
+            R := fputc (10, F);
+         end if;
+      end loop;
+
+      for I in Shlib_Interning.First_Index .. Shlib_Interning.Last_Index loop
+         declare
+            Str : constant String_Acc := Shlib_Interning.Get_By_Index (I);
+         begin
+            R := fputc (Character'Pos ('+'), F);
+            S := fwrite (Str.all'Address, size_t (Str'Length), 1, F);
+            R := fputc (10, F);
+         end;
+      end loop;
+
+      R := fclose (F);
+   end Write_File_List;
+
    Nbr_Parse : Natural := 0;
 
    function Parse (Filename : String_Acc) return Boolean
@@ -408,7 +538,9 @@ package body Ortho_Front is
    begin
       if Nbr_Parse = 0 then
          --  Initialize only once...
-         Libraries.Load_Std_Library;
+         if not Libraries.Load_Std_Library then
+            raise Option_Error;
+         end if;
 
          --  Here, time_base can be set.
          Translation.Initialize;
@@ -429,13 +561,21 @@ package body Ortho_Front is
                Error_Msg_Option ("missing -l for --elab");
                raise Option_Error;
             end if;
-            Config := Configuration.Configure
-              (Elab_Entity.all, Elab_Architecture.all);
+
+            --  Be sure to collect libraries used for vhpidirect.
+            Trans_Be.Sem_Foreign_Hook := Sem_Foreign_Hook'Access;
+            Shlib_Interning.Init;
+
+            Config := Vhdl.Configuration.Configure
+              (Elab_Entity, Elab_Architecture);
             if Errorout.Nbr_Errors > 0 then
                --  This may happen (bad entity for example).
                raise Compilation_Error;
             end if;
-            Translation.Elaborate (Config, Elab_Filelist.all, False);
+
+            Translation.Elaborate (Config, False);
+
+            Write_File_List (Elab_Filelist.all);
 
             if Errorout.Nbr_Errors > 0 then
                --  This may happen (bad entity for example).
@@ -460,19 +600,24 @@ package body Ortho_Front is
                begin
                   L := Anaelab_Files;
                   while L /= null loop
-                     Res := Load_File_Name (L.Id);
-                     if Errorout.Nbr_Errors > 0 then
-                        raise Compilation_Error;
-                     end if;
+                     if L.Is_Library then
+                        Libraries.Work_Library_Name := L.Id;
+                        Libraries.Load_Work_Library (True);
+                     else
+                        Res := Load_File_Name (L.Id);
+                        if Errorout.Nbr_Errors > 0 then
+                           raise Compilation_Error;
+                        end if;
 
-                     --  Put units into library.
-                     Design := Get_First_Design_Unit (Res);
-                     while not Is_Null (Design) loop
-                        Next_Design := Get_Chain (Design);
-                        Set_Chain (Design, Null_Iir);
-                        Libraries.Add_Design_Unit_Into_Library (Design);
-                        Design := Next_Design;
-                     end loop;
+                        --  Put units into library.
+                        Design := Get_First_Design_Unit (Res);
+                        while not Is_Null (Design) loop
+                           Next_Design := Get_Chain (Design);
+                           Set_Chain (Design, Null_Iir);
+                           Libraries.Add_Design_Unit_Into_Library (Design);
+                           Design := Next_Design;
+                        end loop;
+                     end if;
                      L := L.Link;
                   end loop;
                end;
@@ -480,9 +625,9 @@ package body Ortho_Front is
 
             Flags.Flag_Elaborate := True;
             Flags.Flag_Only_Elab_Warnings := False;
-            Config := Configuration.Configure
-              (Elab_Entity.all, Elab_Architecture.all);
-            Translation.Elaborate (Config, "", True);
+            Config := Vhdl.Configuration.Configure
+              (Elab_Entity, Elab_Architecture);
+            Translation.Elaborate (Config, True);
 
             if Errorout.Nbr_Errors > 0 then
                --  This may happen (bad entity for example).
